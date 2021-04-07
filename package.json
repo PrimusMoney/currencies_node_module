@@ -1,0 +1,21 @@
+{
+  "name": "@primusmoney/currencies",
+  "version": "0.20.12",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/primusmoney/currencies"
+  },
+  "author": "PrimusMoney",
+  "homepage": "https://www.primusmoney.com/",
+  "scripts": {
+    "test:node": "mocha ./tests/tests.js"
+  },
+  "dependencies": {
+    "@primusmoney/client_wallet": "^0.20.12"
+  },
+  "devDependencies": {
+    "chai": "^4.2.0",
+    "mocha": "^6.2.1"
+  }
+}
