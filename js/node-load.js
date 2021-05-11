@@ -63,11 +63,11 @@ class NodeLoad {
 			var _globalscope = global; // nodejs global
 			var _noderequire = require; // to avoid problems when react-native processes files
 			
-			// get ethereum_core
-			var ethereum_core = this.node_module.ethereum_core;
+			// get primus_client_wallet
+			var primus_client_wallet = this.node_module.primus_client_wallet;
 			
-			if (ethereum_core.initialized === false) {
-				console.log('WARNING: ethereum_core should be initialized before initializing ethereum_xtra_web');
+			if (primus_client_wallet.initialized === false) {
+				console.log('WARNING: @primusmone/client_wallet should be initialized before initializing @primusmoney/currencies');
 			}
 			
 			// get node module objects
@@ -82,76 +82,94 @@ class NodeLoad {
 			// loading dapps
 			let modulescriptloader = ScriptLoader.findScriptLoader('moduleloader');
 			
-			let xtra_webmodulescriptloader = modulescriptloader.getChildLoader('@primusmoney/currencies');
+			let currenciesmodulescriptloader = modulescriptloader.getChildLoader('@primusmoney/currencies');
 			
 			// setting script root dir to this node module
 			// instead of ethereum_core/imports
 			var path = _noderequire('path');
 			var script_root_dir = path.join(__dirname, '../imports');
-			xtra_webmodulescriptloader.setScriptRootDir(script_root_dir);
+			currenciesmodulescriptloader.setScriptRootDir(script_root_dir);
 			
-			//modulescriptloader.setScriptRootDir(script_root_dir); // because xtra_web uses modulescriptloader instead of xtra_webmodulescriptloader
+			//modulescriptloader.setScriptRootDir(script_root_dir); // because xtra_web uses modulescriptloader instead of currenciesmodulescriptloader
 
 			// multiple module load signalling
 			var checkmodulesload = new CheckModulesLoad(rootscriptloader, '@primusmoney/on_primus_currencies_module_ready');
+
 			
+
 	
-			// xtraconfig
-			ScriptLoader.reclaimScriptLoaderName('xtraconfig'); // already used by ethereum_core
-			ScriptLoader.reclaimScriptLoaderName('xtramoduleloader'); // already used by ethereum_core
-			ScriptLoader.reclaimScriptLoaderName('xtraconfigmoduleloader'); // already used by ethereum_core
-			var xtrawebscriptloader = xtra_webmodulescriptloader.getChildLoader('@primusmoney/currencies');
+			// currencies modules (with an s!)
+			ScriptLoader.reclaimScriptLoaderName('currenciesmodulesloader'); // in case another node module used this name
+			currenciesmodulescriptloader.getChildLoader('currenciesmodulesloader'); // create loader with correct root dir
+
+			currenciesmodulescriptloader.push_script('./includes/modules/module.js', function () {
+				console.log('currencies modules loaded');
+			});
+
+			// currencies modules ready (sent by currenciesmodules module at the end of registerHooks)
+			checkmodulesload.wait('currenciesmodules');
+			rootscriptloader.registerEventListener('on_currencies_modules_ready', function(eventname) {
+				checkmodulesload.check('currenciesmodules');
+			});
+
+
+
+
+			// currencies module (without an s!)
+			ScriptLoader.reclaimScriptLoaderName('currenciesloader'); // in case another node module used this name
+			currenciesmodulescriptloader.getChildLoader('currenciesloader'); // create loader with correct root dir
+
+			currenciesmodulescriptloader.push_script('./includes/modules/currencies/module.js', function () {
+				console.log('currencies module loaded');
+			});
+
+			// currencies module ready (sent by clientmodules module at the end of registerHooks)
+			checkmodulesload.wait('currencies');
+			rootscriptloader.registerEventListener('on_currencies_module_ready', function(eventname) {
+				checkmodulesload.check('currencies');
+			});
+
+
 			
-			// clients module
-			ScriptLoader.reclaimScriptLoaderName('clientmodulesloader'); // in case another node module used this name
-			xtrawebscriptloader.getChildLoader('clientmodulesloader'); // create loader with correct root dir
+			// uniswap
+			ScriptLoader.reclaimScriptLoaderName('uniswaploader'); // in case another node module used this name
+			currenciesmodulescriptloader.getChildLoader('uniswaploader'); // create loader with correct root dir
 
-			xtrawebscriptloader.push_script('./includes/modules/module.js', function () {
-				console.log('clients module loaded');
+			currenciesmodulescriptloader.push_script('./includes/modules/uniswap/module.js', function () {
+				console.log('uniswap module loaded');
 			});
 
-			// clientmodules module ready (sent by clientmodules module at the end of registerHooks)
-			checkmodulesload.wait('clientsmodule');
-			rootscriptloader.registerEventListener('on_clientmodules_module_ready', function(eventname) {
-				checkmodulesload.check('clientsmodule');
+			// uniswap module ready (sent by uniswap module at the end of registerHooks)
+			checkmodulesload.wait('uniswap');
+			rootscriptloader.registerEventListener('on_uniswap_module_ready', function(eventname) {
+				checkmodulesload.check('uniswap');
 			});
 
+
+			// mvc-currencies module
+			ScriptLoader.reclaimScriptLoaderName('mvccurrenciesmoduleloader'); // in case another node module used this name
+			currenciesmodulescriptloader.getChildLoader('mvccurrenciesmoduleloader'); // create loader with correct root dir
+
+			currenciesmodulescriptloader.push_script('./includes/mvc-api/module.js', function () {
+				console.log('mvc currencies module loaded');
+			});
+
+			// mvc-currencies module ready (sent by mvc-currencies module at the end of registerHooks)
+			checkmodulesload.wait('mvccurrenciesmodule');
+			rootscriptloader.registerEventListener('on_mvc_currencies_module_ready', function(eventname) {
+				checkmodulesload.check('mvccurrenciesmodule');
+			});
+						
+			
+
+			
 				
-			// synchronized storage module
-			ScriptLoader.reclaimScriptLoaderName('synchronizedmoduleloader'); // in case another node module used this name
-			xtrawebscriptloader.getChildLoader('synchronizedmoduleloader'); // create loader with correct root dir
-
-			xtrawebscriptloader.push_script('./includes/modules/synchronized-storage/module.js', function () {
-				console.log('synchronized storage module loaded');
-			});
-
-			// synchronized-storage module ready (sent by synchronized-storage module at the end of registerHooks)
-			checkmodulesload.wait('synchronized-storage');
-			rootscriptloader.registerEventListener('on_synchronized-storage_module_ready', function(eventname) {
-				checkmodulesload.check('synchronized-storage');
-			});
-				
-			// wallet module
-			ScriptLoader.reclaimScriptLoaderName('walletloader'); // in case another node module used this name
-			xtrawebscriptloader.getChildLoader('walletloader'); // create loader with correct root dir
-
-			xtrawebscriptloader.push_script('./includes/modules/wallet/module.js', function () {
-				console.log('wallet module loaded');
-			});
-
-			// wallet module ready (sent by wallet module at the end of registerHooks)
-			checkmodulesload.wait('wallet');
-			rootscriptloader.registerEventListener('on_wallet_module_ready', function(eventname) {
-				checkmodulesload.check('wallet');
-			});
-				
-				
-			// start loading xtra_webmoduleloader
-			xtra_webmodulescriptloader.load_scripts(function () {
+			// start loading currenciesmodulescriptloader
+			currenciesmodulescriptloader.load_scripts(function () {
 				var _nodeobject = GlobalClass.getGlobalObject();
 				
-				// loading xtra pushed in xtrawebscriptloader
-				xtrawebscriptloader.load_scripts(function() {
+				// loading xtra pushed in currenciesmodulescriptloader
+				currenciesmodulescriptloader.load_scripts(function() {
 					checkmodulesload.check();
 				});
 			});

@@ -5,7 +5,7 @@ var Module = class {
 	
 	constructor() {
 		this.name = 'mvc-currencies';
-		this.current_version = "1.01.1.2020.12.05";
+		this.current_version = "0.30.2.2021.05.15";
 		
 		this.global = null; // put by global on registration
 		this.app = null;
@@ -59,7 +59,11 @@ var Module = class {
 		
 		var global = this.global;
 		
-		// initialization
+		// hooks
+
+		// signal module is ready
+		var rootscriptloader = global.getRootScriptLoader();
+		rootscriptloader.signalEvent('on_mvc_currencies_module_ready');
 	}
 	
 	postRegisterModule() {
@@ -82,9 +86,9 @@ var Module = class {
 		
 		var global = this.global;
 		
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 		
-		this.clientapicontrollers = mvcmodule._getClientAPI();
+		this.clientapicontrollers = mvcclientwalletmodule._getClientAPI();
 		
 		return  this.clientapicontrollers;
 	}
@@ -227,6 +231,36 @@ var Module = class {
 	// Card functions
 	//
 
+	// TODO: replace by _apicontrollers.__makeWalletCard for version >= 0.20.18
+	async __makeWalletCard(session, wallet, scheme, authname, password, address) {
+		// to create a remote card on a remote wallet, with different schemes
+		var global = this.global;
+		var Card = global.getModuleClass('wallet', 'Card');;
+
+		var cardjson = {};
+		cardjson.authname = authname;
+		cardjson.address = address;
+		cardjson.password = password;
+
+		cardjson.uuid = session.guid();
+		cardjson.label = authname;
+
+		const card_new =  Card.readFromJson(wallet, scheme, cardjson);
+
+		if (card_new) {
+			await card_new.init();
+
+			if (card_new.isLocked()) {
+				await card_new.unlock();
+			}
+
+			return card_new;
+		}
+		else
+			throw new Error('could not create card');
+
+	}
+	
 	async _makeWalletCard(session, wallet, scheme, privatekey) {
 		// we make client or remote wallets, depending on the scheme
 		var global = this.global;
@@ -272,7 +306,9 @@ var Module = class {
 		var authname = walletuser.getUserName();
 		var password = null;
 
-		const card_new =  await _apicontrollers.makeWalletCard(session, wallet, scheme, authname, password, address)
+		// TODO: replace by _apicontrollers.makeWalletCard for version >= 0.20.18
+		//const card_new =  await _apicontrollers.makeWalletCard(session, wallet, scheme, authname, password, address)
+		const card_new =  await this.__makeWalletCard(session, wallet, scheme, authname, password, address)
 		.catch(err => {
 			console.log('error in _makeWalletCard: ' + err);
 		});
@@ -291,6 +327,7 @@ var Module = class {
 	}
 
 
+	// TODO: replace by _apicontrollers.createWalletCard for version >= 0.20.18
 	async _createWalletCard(session, wallet, scheme, privatekey) {
 		var global = this.global;
 		var _apicontrollers = this._getClientAPI();
@@ -343,9 +380,9 @@ var Module = class {
 
 	_getAverageTransactionFee(scheme) {
 		var global = this.global;
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 
-		return mvcmodule._getAverageTransactionFee(scheme);
+		return mvcclientwalletmodule._getAverageTransactionFee(scheme);
 	}
 
 
@@ -362,7 +399,7 @@ var Module = class {
 		return _apicurrencies.createDecimalAmount(session, amount, decimals);
 	}
 
-	async transferCurrencyAmount(sessionuuid, walletuuid, cardfromuuid, cardtouuid, currencyuuid, currencyamount, feelevel = 0) {
+	async transferCurrencyAmount(sessionuuid, walletuuid, cardfromuuid, cardtouuid, currencyuuid, currencyamount, feelevel = null) {
 		var global = this.global;
 
 		if (!sessionuuid)
@@ -386,7 +423,7 @@ var Module = class {
 
 		var amount = await currencyamount.toString();
 
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 		var _apicontrollers = this._getClientAPI();
 
 		var session = await _apicontrollers.getSessionObject(sessionuuid);
@@ -470,9 +507,9 @@ var Module = class {
 		
 		var global = this.global;
 
-		var clientmodule = global.getModuleObject('currencies');
+		var currenciesmodule = global.getModuleObject('currencies');
 
-		return clientmodule.getCurrencyProvider(session, currency.uuid);
+		return currenciesmodule.getCurrencyProvider(session, currency.uuid);
 	}
 
 	async _getCurrencyOps(session, currency) {
@@ -493,6 +530,7 @@ var Module = class {
 
 	}
 
+	// TODO: use currenciesmodule.getCurrencyScheme
 	async _getCurrencyScheme(session, currency) {
 		if (!session)
 			return Promise.reject('session is undefined');
@@ -529,6 +567,7 @@ var Module = class {
 		return scheme;
 	}
 
+	// TODO: use currenciesmodule.getCurrencyWeb3ProviderUrl
 	async _getCurrencyWeb3ProviderUrl(session, currency) {
 		if (currency.web3providerurl)
 			return currency.web3providerurl;
@@ -662,22 +701,28 @@ var Module = class {
 		if (!session)
 			return Promise.reject('could not find session ' + sessionuuid);
 
+		var currenciesmodule = global.getModuleObject('currencies');
+		var current_currencies_timestamp = currenciesmodule.getCurrenciesTimeStamp();
+
 		// look if already stored in the session variables
 		var currencies = session.getSessionVariable('currencies');
 
 		if (currencies) {
-			// send back a copy
-			var _currencies = await this._filterCurrencies(session, currencies, walletuuid);
+			// verify version is up-to-date
+			var currencies_timestamp = session.getSessionVariable('currencies-timestamp');
 
-			return _currencies;
+			if (currencies_timestamp === current_currencies_timestamp) {
+				// send back copy from cached list
+				var _currencies = await this._filterCurrencies(session, currencies, walletuuid);
+
+				return _currencies;
+			}
 		}
 	
 		// otherwise retrieve the list of currencies
 		var global = this.global;
 
-		var clientmodule = global.getModuleObject('currencies');
-
-		var currencies = clientmodule.getCurrencies();
+		var currencies = currenciesmodule.getCurrencies();
 
 		var array = Object.values(currencies);
 
@@ -699,6 +744,7 @@ var Module = class {
 
 		// store in session
 		session.setSessionVariable('currencies', array);
+		session.setSessionVariable('currencies-timestamp', current_currencies_timestamp);
 
 		// send back a copy
 		var _currencies = await this._filterCurrencies(session, array, walletuuid);
@@ -730,7 +776,7 @@ var Module = class {
 			return Promise.reject('currency is undefined');
 
 		var global = this.global;
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 
 		var cards = await wallet.getCardList(true);
 
@@ -795,6 +841,47 @@ var Module = class {
 		return card;
 	}
 
+	async getCurrencyScheme(sessionuuid, walletuuid, currencyuuid) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+		
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+		
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+
+		var currenciesmodule = global.getModuleObject('currencies');
+
+		var scheme = await currenciesmodule.getCurrencyScheme(session, currency);
+
+		var mvcclienwallet = global.getModuleObject('mvc-client-wallet');
+
+		var schemeinfo = {uuid: scheme.getSchemeUUID()};
+
+		mvcclienwallet._fillSchemeInfoFromScheme(schemeinfo, scheme);
+
+		return schemeinfo;
+	}
+
 	async getCurrencyCard(sessionuuid, walletuuid, currencyuuid) {
 		if (!sessionuuid)
 			return Promise.reject('session uuid is undefined');
@@ -830,11 +917,11 @@ var Module = class {
 			return Promise.reject('could not find currency card for wallet ' + walletuuid);
 
 
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 
 		var cardinfo = {uuid: card.getCardUUID()};
 
-		mvcmodule._fillCardInfo(cardinfo, card);
+		mvcclientwalletmodule._fillCardInfo(cardinfo, card);
 
 		return cardinfo;
 	}
@@ -943,7 +1030,7 @@ var Module = class {
 		if (!wallet)
 			return Promise.reject('could not find wallet ' + walletuuid);
 
-		// TODO: replace by _apicontrollers.createWalletCard for version >= 0.20.7
+		// TODO: replace by _apicontrollers.createWalletCard for version >= 0.20.18
 		const card = await this._createWalletCard(session, wallet, scheme, privatekey); 
 		//const card = await _apicontrollers.createWalletCard(session, wallet, scheme, privatekey);
 
@@ -976,10 +1063,10 @@ var Module = class {
 		}
 
 		// return cardinfo
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 		var cardinfo = {};
 
-		mvcmodule._fillCardInfo(cardinfo, card);
+		mvcclientwalletmodule._fillCardInfo(cardinfo, card);
 		
 		return cardinfo;
 	}
@@ -1024,10 +1111,10 @@ var Module = class {
 
 		if (card) {
 			// return cardinfo
-			var mvcmodule = global.getModuleObject('mvc-client-wallet');
+			var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 			var cardinfo = {};
 
-			mvcmodule._fillCardInfo(cardinfo, card);
+			mvcclientwalletmodule._fillCardInfo(cardinfo, card);
 			
 			return cardinfo;	
 		}
@@ -1101,10 +1188,10 @@ var Module = class {
 			return Promise.reject('could not save card');
 
 		// return cardinfo
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 		var cardinfo = {};
 
-		mvcmodule._fillCardInfo(cardinfo, card);
+		mvcclientwalletmodule._fillCardInfo(cardinfo, card);
 		
 		return cardinfo;	
 	}
@@ -1197,8 +1284,8 @@ var Module = class {
 			cardinfo = await this.getCurrencyCard(sessionuuid, walletuuid, currencyuuid);
 		}
 		else {
-			var mvcmodule = global.getModuleObject('mvc-client-wallet');
-			cardinfo = await mvcmodule. getCardInfo(sessionuuid, walletuuid, carduuid);
+			var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
+			cardinfo = await mvcclientwalletmodule. getCardInfo(sessionuuid, walletuuid, carduuid);
 		}
 		
 		
@@ -1227,7 +1314,7 @@ var Module = class {
 			return Promise.reject('currency uuid is undefined');
 		
 		var global = this.global;
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 		var _apicontrollers = this._getClientAPI();
 	
 		var session = await _apicontrollers.getSessionObject(sessionuuid);
@@ -1251,11 +1338,9 @@ var Module = class {
 		var carduuid = card.getCardUUID();
 		var schemeuuid = card.getSchemeUUID();
 
-		// TODO: use mvcmodule.getCreditBalance for version >= 0.20.8
-		//var credits = await mvcmodule.getCreditBalance(sessionuuid, walletuuid, carduuid);
-		var credits = await this.getCreditBalance(sessionuuid, walletuuid, carduuid);
+		var credits = await mvcclientwalletmodule.getCreditBalance(sessionuuid, walletuuid, carduuid);
 
-		credits.threshold = await mvcmodule.getSchemeTransactionUnitsThreshold(sessionuuid, schemeuuid);
+		credits.threshold = await mvcclientwalletmodule.getSchemeTransactionUnitsThreshold(sessionuuid, schemeuuid);
 
 		return credits;
 	}
@@ -1280,7 +1365,7 @@ var Module = class {
 		return cardsession;
 	}
 
-	async payAmount(sessionuuid, walletuuid, carduuid, toaddress, currencyuuid, amount) {
+	async payAmount(sessionuuid, walletuuid, carduuid, toaddress, currencyuuid, amount, feelevel = null) {
 		if (!sessionuuid)
 			return Promise.reject('session uuid is undefined');
 		
@@ -1294,7 +1379,7 @@ var Module = class {
 			return Promise.reject('currency uuid is undefined');
 		
 		var global = this.global;
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 		var _apicontrollers = this._getClientAPI();
 	
 		var session = await _apicontrollers.getSessionObject(sessionuuid);
@@ -1322,7 +1407,7 @@ var Module = class {
 		var ops = await this._getCurrencyOps(session, currency);
 
 		if (ops.cantopup === true) {
-			const topupinfo = await mvcmodule.topUpCard(sessionuuid, walletuuid, carduuid)		
+			const topupinfo = await mvcclientwalletmodule.topUpCard(sessionuuid, walletuuid, carduuid)		
 			.catch(err => {
 				console.log('error in payAndReport: ' + err);
 			});
@@ -1358,10 +1443,10 @@ var Module = class {
 		var scheme = await this._getCurrencyScheme(session, currency);
 
 		var providerurl = await this._getCurrencyWeb3ProviderUrl(session, currency);
-		var fee  = await _apicontrollers.createSchemeFee(scheme);
+		var fee  = await _apicontrollers.createSchemeFee(scheme, feelevel);
 		var value = 0;
 
-		const credits = await this.getCreditBalance(sessionuuid, walletuuid, carduuid)
+		const credits = await mvcclientwalletmodule.getCreditBalance(sessionuuid, walletuuid, carduuid)
 		.catch(err => {
 			console.log('error in payAmount: ' + err);
 		});
@@ -1404,7 +1489,7 @@ var Module = class {
 			return Promise.reject('currency uuid is undefined');
 		
 		var global = this.global;
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 		var _apicontrollers = this._getClientAPI();
 	
 		var session = await _apicontrollers.getSessionObject(sessionuuid);
@@ -1475,14 +1560,14 @@ var Module = class {
 
 		var cards = await this._getCurrencyCardList(session, wallet, currency);
 
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 		var array = [];
 				
 		for (var i = 0; i < (cards ? cards.length : 0); i++) {
 			var carduuid = cards[i].getCardUUID();
 			var cardinfo = {uuid: carduuid};
 			
-			mvcmodule._fillCardInfo(cardinfo, cards[i]);
+			mvcclientwalletmodule._fillCardInfo(cardinfo, cards[i]);
 			
 			array.push(cardinfo);
 		}
@@ -1490,7 +1575,7 @@ var Module = class {
 		return array;
 	}
 
-	async getCurencySchemeInfo(sessionuuid, currencyuuid) {
+	async getCurrencySchemeInfo(sessionuuid, currencyuuid) {
 		if (!sessionuuid)
 			return Promise.reject('session uuid is undefined');
 		
@@ -1512,11 +1597,11 @@ var Module = class {
 
 		var scheme = await this._getCurrencyScheme(session, currency);
 
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 
 		var schemeinfo = {uuid: scheme.getSchemeUUID()};
 		
-		mvcmodule._fillSchemeInfoFromScheme(schemeinfo, scheme);
+		mvcclientwalletmodule._fillSchemeInfoFromScheme(schemeinfo, scheme);
 
 		return schemeinfo;
 	}
@@ -1544,11 +1629,11 @@ var Module = class {
 
 		var pretradescheme = await this._getPretradeScheme(session, currency);
 
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 
 		var pretradeschemeinfo = {uuid: pretradescheme.getSchemeUUID()};
 		
-		mvcmodule._fillSchemeInfoFromScheme(pretradeschemeinfo, pretradescheme);
+		mvcclientwalletmodule._fillSchemeInfoFromScheme(pretradeschemeinfo, pretradescheme);
 
 		return pretradeschemeinfo;
 	}
@@ -1591,7 +1676,7 @@ var Module = class {
 			return Promise.reject('currency uuid is undefined');
 		
 		var global = this.global;
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 		var _apicontrollers = this._getClientAPI();
 
 		var session = await _apicontrollers.getSessionObject(sessionuuid);
@@ -1636,7 +1721,7 @@ var Module = class {
 				var canPretradeCardSign = await pretradecard.canSign();
 
 				if (canPretradeCardSign === true) {
-					pretradecardinfo = await mvcmodule.getCardInfo(sessionuuid, walletuuid, pretradecard.getCardUUID());
+					pretradecardinfo = await mvcclientwalletmodule.getCardInfo(sessionuuid, walletuuid, pretradecard.getCardUUID());
 					break;
 				}				
 			}
@@ -1644,7 +1729,7 @@ var Module = class {
 		
 /* 		var pretradeschemeuuid = pretradescheme.getSchemeUUID();
 		
-		var cardinfos = await mvcmodule.getCardList(sessionuuid, walletuuid, true)
+		var cardinfos = await mvcclientwalletmodule.getCardList(sessionuuid, walletuuid, true)
 		.catch(err => {
 			console.log('error in getPretradeCard: ' + err);
 		});
@@ -1687,11 +1772,11 @@ var Module = class {
 
 				if (pretrade_schemeinfo.uuid != card.getSchemeUUID()) {
 					// we clone card on pretrade scheme
-					pretradecardinfo = await mvcmodule.cloneCard(sessionuuid, walletuuid, carduuid, pretrade_schemeinfo.uuid);
+					pretradecardinfo = await mvcclientwalletmodule.cloneCard(sessionuuid, walletuuid, carduuid, pretrade_schemeinfo.uuid);
 				}
 				else {
 					// we return the card it self
-					pretradecardinfo = await mvcmodule.getCardInfo(sessionuuid, walletuuid, carduuid);
+					pretradecardinfo = await mvcclientwalletmodule.getCardInfo(sessionuuid, walletuuid, carduuid);
 				}
 
 				if (!pretradecardinfo)
@@ -1719,7 +1804,7 @@ var Module = class {
 			// mark as pretrade card
 			await this.setPretradeCard(sessionuuid, walletuuid, currencyuuid, pretradecard.uuid);
 
-			pretradecardinfo = await mvcmodule.getCardInfo(sessionuuid, walletuuid, pretradecard.uuid);
+			pretradecardinfo = await mvcclientwalletmodule.getCardInfo(sessionuuid, walletuuid, pretradecard.uuid);
 
 		}
 
@@ -1878,7 +1963,7 @@ var Module = class {
 		return price_struct;
 	}
 
-	async buyCreditUnits(sessionuuid, walletuuid, carduuid, currencyuuid, creditunits, feelevel = 0) {
+	async buyCreditUnits(sessionuuid, walletuuid, carduuid, currencyuuid, creditunits, feelevel = null) {
 		if (!sessionuuid)
 			return Promise.reject('session uuid is undefined');
 		
@@ -1892,7 +1977,7 @@ var Module = class {
 		return Promise.reject('currency uuid is undefined');
 	
 		var global = this.global;
-		var mvcmodule = global.getModuleObject('mvc-client-wallet');
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 		var _apicontrollers = this._getClientAPI();
 
 		var session = await _apicontrollers.getSessionObject(sessionuuid);
@@ -1962,10 +2047,7 @@ var Module = class {
 		// fee
 		var fee = await _apicontrollers.createSchemeFee(scheme, feelevel);
 			
-		let units_per_swap_transfer = 3;
-		let gaslimit = fee.gaslimit * units_per_swap_transfer;
-
-		ethtx.setGas(gaslimit);
+		ethtx.setGas(fee.gaslimit);
 		ethtx.setGasPrice(fee.gasPrice);
 
 		// send swap request
@@ -2102,7 +2184,7 @@ var Module = class {
 		var global = this.global;
 		var _apicontrollers = this._getClientAPI();
 
-		var mvcmodule = global.getModuleObject('mvc-client-wallet')
+		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet')
 	
 		var session = await _apicontrollers.getSessionObject(sessionuuid);
 	
@@ -2121,7 +2203,7 @@ var Module = class {
 			tokenamountstring = await this._unformatAmount(session, amount, decimals);
 		}
 		else if (Number.isInteger(amount)) {
-			tokenamountstring = mvcmodule.formatAmount(amount, decimals)
+			tokenamountstring = mvcclientwalletmodule.formatAmount(amount, decimals)
 		} 
 		else {
 			let isFloat = (n) => {
@@ -2183,19 +2265,20 @@ var Module = class {
 	}
 }
 
-if ( (typeof GlobalClass === 'undefined') || (!GlobalClass)) {
-	var GlobalClass = ((typeof window !== 'undefined') && window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
+if ( typeof window !== 'undefined' && typeof window.GlobalClass !== 'undefined' && window.GlobalClass ) {
+	var _GlobalClass = window.GlobalClass;
+}
+else if (typeof window !== 'undefined') {
+	var _GlobalClass = ( window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
+}
+else if (typeof global !== 'undefined') {
+	// we are in node js
+	var _GlobalClass = ( global && global.simplestore && global.simplestore.Global ? global.simplestore.Global : null);
 }
 
-if ( typeof GlobalClass !== 'undefined' && GlobalClass ) {
-	GlobalClass.getGlobalObject().registerModuleObject(new Module());
+_GlobalClass.getGlobalObject().registerModuleObject(new Module());
 
-	//dependencies
-	GlobalClass.getGlobalObject().registerModuleDepency('mvc-currencies', 'common');
-
-	// module classes	
-	//GlobalClass.registerModuleClass('mvc-currencies', 'DecimalAmount', DecimalAmount);
-	//GlobalClass.registerModuleClass('mvc-currencies', 'CurrencyAmount', CurrencyAmount);
-}
+//dependencies
+_GlobalClass.getGlobalObject().registerModuleDepency('mvc-currencies', 'common');
 
 

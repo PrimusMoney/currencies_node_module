@@ -32,13 +32,13 @@ var CurrencyAmount = class {
 	async toDecoratedString(options) {
 		var session = this.session;
 		var global = session.getGlobalObject();
-		var mvcmyquotemodule = global.getModuleObject('mvc-myquote');
+		var mvccurrenciesmodule = global.getModuleObject('mvc-currencies');
 
 		var amount = await this.decimalamount.toInteger();
 		var symbol = this.currency.symbol;
 		var decimals = this.currency.decimals;
 		
-		var amountstring = await mvcmyquotemodule._formatMonetaryAmount(session, amount, symbol, decimals, options);
+		var amountstring = await mvccurrenciesmodule._formatMonetaryAmount(session, amount, symbol, decimals, options);
 
 		return amountstring;
 	}
@@ -52,14 +52,15 @@ var CurrencyAmount = class {
 	}
 }
 
-if (typeof window !== 'undefined') {
-	let _GlobalClass = ( window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
-	
-	_GlobalClass.registerModuleClass('currencies', 'CurrencyAmount', CurrencyAmount);
+if ( typeof window !== 'undefined' && typeof window.GlobalClass !== 'undefined' && window.GlobalClass ) {
+	var _GlobalClass = window.GlobalClass;
+}
+else if (typeof window !== 'undefined') {
+	var _GlobalClass = ( window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
 }
 else if (typeof global !== 'undefined') {
 	// we are in node js
-	let _GlobalClass = ( global && global.simplestore && global.simplestore.Global ? global.simplestore.Global : null);
-	
-	_GlobalClass.registerModuleClass('currencies', 'CurrencyAmount', CurrencyAmount);
+	var _GlobalClass = ( global && global.simplestore && global.simplestore.Global ? global.simplestore.Global : null);
 }
+
+_GlobalClass.registerModuleClass('currencies', 'CurrencyAmount', CurrencyAmount);

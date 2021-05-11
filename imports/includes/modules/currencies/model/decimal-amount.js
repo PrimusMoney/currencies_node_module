@@ -26,7 +26,7 @@ var DecimalAmount = class {
 	}
 
 	async toString() {
-		var amountstring = (this.amount ? this.amount.toString() : '-1');
+		var amountstring = (this.amount ? this.amount.toString() : '0');
 
 		return amountstring;
 	}
@@ -55,20 +55,35 @@ var DecimalAmount = class {
 		return this;
 	}
 
+	async add(decimalamount) {
+		if ((decimalamount instanceof DecimalAmount) !== true)
+			return Promise.reject('wrong decimal amount type');
+
+		this.amount += decimalamount.amount;
+
+		this.bignumber.plus(decimalamount.amount);
+
+		var _mnt = this.bignumber.integerValue();
+
+		return this;
+	}
+
 	static async create(session, amount, decimals) {
 		// analyse amount type transform it to integer
 		return new DecimalAmount(session, amount, decimals);
 	}
 }
 
-if (typeof window !== 'undefined') {
-	let _GlobalClass = ( window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
-	
-	_GlobalClass.registerModuleClass('currencies', 'DecimalAmount', DecimalAmount);
+
+if ( typeof window !== 'undefined' && typeof window.GlobalClass !== 'undefined' && window.GlobalClass ) {
+	var _GlobalClass = window.GlobalClass;
+}
+else if (typeof window !== 'undefined') {
+	var _GlobalClass = ( window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
 }
 else if (typeof global !== 'undefined') {
 	// we are in node js
-	let _GlobalClass = ( global && global.simplestore && global.simplestore.Global ? global.simplestore.Global : null);
-	
-	_GlobalClass.registerModuleClass('currencies', 'DecimalAmount', DecimalAmount);
+	var _GlobalClass = ( global && global.simplestore && global.simplestore.Global ? global.simplestore.Global : null);
 }
+
+_GlobalClass.registerModuleClass('currencies', 'DecimalAmount', DecimalAmount);

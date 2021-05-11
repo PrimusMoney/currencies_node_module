@@ -209,14 +209,15 @@ var UniswapAccess = class {
 
 }
 
-if (typeof window !== 'undefined') {
-	let _GlobalClass = ( window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
-	
-	_GlobalClass.registerModuleClass('uniswap', 'UniswapAccess', UniswapAccess);
+if ( typeof window !== 'undefined' && typeof window.GlobalClass !== 'undefined' && window.GlobalClass ) {
+	var _GlobalClass = window.GlobalClass;
+}
+else if (typeof window !== 'undefined') {
+	var _GlobalClass = ( window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
 }
 else if (typeof global !== 'undefined') {
 	// we are in node js
-	let _GlobalClass = ( global && global.simplestore && global.simplestore.Global ? global.simplestore.Global : null);
-	
-	_GlobalClass.registerModuleClass('uniswap', 'UniswapAccess', UniswapAccess);
+	var _GlobalClass = ( global && global.simplestore && global.simplestore.Global ? global.simplestore.Global : null);
 }
+
+_GlobalClass.registerModuleClass('uniswap', 'UniswapAccess', UniswapAccess);

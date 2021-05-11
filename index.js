@@ -1,5 +1,7 @@
 /**
- * 
+ * @author PrimusMoney
+ * @homepage https://www.primusmoney.com/
+ * @license UNLICENSED
  */
 'use strict';
 

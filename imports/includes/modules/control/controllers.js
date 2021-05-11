@@ -30,6 +30,13 @@ var ModuleControllers = class {
 		return DecimalAmountClass.create(session, amount, decimals);
 	}
 
+	async getCurrencyScheme(session, currency) {
+		var global = this.global;
+		var currenciesmodule = global.getModuleObject('currencies');
+
+		return currenciesmodule.getCurrencyScheme(session, currency)
+	}
+
 	/***********************/
 	/*    uniswap module   */
 	/***********************/

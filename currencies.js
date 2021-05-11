@@ -11,23 +11,9 @@ class Currencies {
 		
 		this.initializationpromise = null;
 		
-		var Ethereum_core = require('@p2pmoney-org/ethereum_core');
-		var Ethereum_erc20 = require('@p2pmoney-org/ethereum_erc20');
-		var Ethereum_xtra_web = require('@p2pmoney-org/ethereum_xtra_web');
-		//var Ethereum_core = require('../../@p2pmoney-org/ethereum_core');
-		//var Ethereum_erc20 = require('../../@p2pmoney-org/ethereum_erc20');
-		//var Ethereum_xtra_web = require('../../@p2pmoney-org/ethereum_xtra_web');
+		//var PrimusMoney_client_wallet= require('@primusmoney/client_wallet');
+		var PrimusMoney_client_wallet= require('../../@primusmoney/client_wallet');
 		
-		var PrimusMoney_ethereum_xtra_web = require('@primusmoney/ethereum_xtra_web');
-		var PrimusMoney_client_wallet= require('@primusmoney/client_wallet');
-		//var PrimusMoney_ethereum_xtra_web = require('../../@primusmoney/ethereum_xtra_web');
-		//var PrimusMoney_client_wallet= require('../../@primusmoney/client_wallet');
-		
-		this.ethereum_core = Ethereum_core.getObject();
-		this.ethereum_erc20 = Ethereum_erc20.getObject();
-		this.ethereum_xtra_web = Ethereum_xtra_web.getObject();
-
-		this.primus_ethereum_xtra_web = PrimusMoney_ethereum_xtra_web.getObject();
 		this.primus_client_wallet = PrimusMoney_client_wallet.getObject();
 	}
 	
@@ -49,30 +35,7 @@ class Currencies {
 			return this.initializationpromise;
 		}
 
-		// @p2pmoney dependencies
-		var ethereum_core = this.ethereum_core;
-		var ethereum_erc20 = this.ethereum_erc20;
-		var ethereum_xtra_web = this.ethereum_xtra_web;
-		
-		if (ethereum_core.initialized === false) {
-			await ethereum_core.init();
-		}
-
-		if (ethereum_erc20.initialized === false) {
-			await ethereum_erc20.init();
-		}
-
-		if (ethereum_xtra_web.initialized === false) {
-			await ethereum_xtra_web.init();
-		}
-
 		// @primusmoney dependencies
-		var primus_ethereum_xtra_web = this.primus_ethereum_xtra_web;
-
-		if (primus_ethereum_xtra_web.initialized === false) {
-			await primus_ethereum_xtra_web.init();
-		}
-
 		var primus_client_wallet = this.primus_client_wallet;
 
 		if (primus_client_wallet.initialized === false) {
@@ -147,6 +110,14 @@ class Currencies {
 		return require('./js/control/controllers.js').getObject();
 	}
 
+	getMvcAPI() {
+		var clientglobal = this.getGlobalObject();
+		
+		var mvcmodule = clientglobal.getModuleObject('mvc-currencies');
+
+		return mvcmodule;
+	}
+	
 	getClientAPI() {
 		var global = this.getGlobalObject();
 

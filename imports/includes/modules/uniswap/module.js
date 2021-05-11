@@ -52,7 +52,9 @@ var Module = class {
 
 		modulescriptloader.push_script( moduleroot + '/model/uniswap-access.js');
 
-		modulescriptloader.push_script( moduleroot + '/model/interface/exchange-contract-interface.js');
+		modulescriptloader.push_script( moduleroot + '/model/interface/v2/factory-contract-interface.js');
+		modulescriptloader.push_script( moduleroot + '/model/interface/v2/pair-contract-interface.js');
+		modulescriptloader.push_script( moduleroot + '/model/interface/v2/router02-contract-interface.js');
 		
 		modulescriptloader.load_scripts(function() { self.init(); if (callback) callback(null, self); });
 		
@@ -94,6 +96,9 @@ var Module = class {
 		
 		var global = this.global;
 		
+		// signal module is ready
+		var rootscriptloader = global.getRootScriptLoader();
+		rootscriptloader.signalEvent('on_uniswap_module_ready');
 	}
 	
 	postRegisterModule() {
@@ -165,20 +170,20 @@ var Module = class {
 
 }
 
-if (typeof window !== 'undefined') {
-	let _GlobalClass = ( window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
-	
-	_GlobalClass.getGlobalObject().registerModuleObject(new Module());
 
-	// dependencies
-	_GlobalClass.getGlobalObject().registerModuleDepency('uniswap', 'common');		
+if ( typeof window !== 'undefined' && typeof window.GlobalClass !== 'undefined' && window.GlobalClass ) {
+	var _GlobalClass = window.GlobalClass;
+}
+else if (typeof window !== 'undefined') {
+	var _GlobalClass = ( window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
 }
 else if (typeof global !== 'undefined') {
 	// we are in node js
-	let _GlobalClass = ( global && global.simplestore && global.simplestore.Global ? global.simplestore.Global : null);
-	
-	_GlobalClass.getGlobalObject().registerModuleObject(new Module());
-
-	// dependencies
-	_GlobalClass.getGlobalObject().registerModuleDepency('uniswap', 'common');		
+	var _GlobalClass = ( global && global.simplestore && global.simplestore.Global ? global.simplestore.Global : null);
 }
+
+_GlobalClass.getGlobalObject().registerModuleObject(new Module());
+
+// dependencies
+_GlobalClass.getGlobalObject().registerModuleDepency('uniswap', 'common');		
+

@@ -3,7 +3,7 @@
 var Module = class {
 	constructor() {
 		this.name = 'currenciesmodules';
-		this.current_version = "0.20.11.2021.03.13";
+		this.current_version = "0.30.2.2021.05.15";
 		
 		this.global = null; // put by global on registration
 		this.isready = false;
@@ -35,11 +35,11 @@ var Module = class {
 		var modulescriptloader;
 		
 		// look if currenciesloader already created (e.g. for loading in node.js)
-		modulescriptloader = global.findScriptLoader('currenciesloader');
+		modulescriptloader = global.findScriptLoader('currenciesmodulesloader');
 
 		// if not, create on as child as parent script loader passed in argument
 		if (!modulescriptloader)
-		modulescriptloader = parentscriptloader.getChildLoader('currenciesloader');
+		modulescriptloader = parentscriptloader.getChildLoader('currenciesmodulesloader');
 
 		var xtraroot = './includes';
 		var moduleroot = xtraroot + '/modules';
@@ -69,6 +69,9 @@ var Module = class {
 		global.modifyHookPriority('getVersionInfo_hook', this.name, -7);
 		
 		
+		// signal module is ready
+		var rootscriptloader = global.getRootScriptLoader();
+		rootscriptloader.signalEvent('on_currencies_modules_ready');
 	}
 	
 	postRegisterModule() {
@@ -131,28 +134,18 @@ var Module = class {
 
 
 if ( typeof window !== 'undefined' && typeof window.GlobalClass !== 'undefined' && window.GlobalClass ) {
-	window.GlobalClass.getGlobalObject().registerModuleObject(new Module());
-
-	// dependencies
-	window.GlobalClass.getGlobalObject().registerModuleDepency('currenciesmodules', 'common');
-	window.GlobalClass.getGlobalObject().registerModuleDepency('currenciesmodules', 'clientmodules');
+	var _GlobalClass = window.GlobalClass;
 }
 else if (typeof window !== 'undefined') {
-	let _GlobalClass = ( window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
-	
-	_GlobalClass.getGlobalObject().registerModuleObject(new Module());
-
-	// dependencies
-	_GlobalClass.getGlobalObject().registerModuleDepency('currenciesmodules', 'common');
-	_GlobalClass.getGlobalObject().registerModuleDepency('currenciesmodules', 'clientmodules');
+	var _GlobalClass = ( window && window.simplestore && window.simplestore.Global ? window.simplestore.Global : null);
 }
 else if (typeof global !== 'undefined') {
 	// we are in node js
-	let _GlobalClass = ( global && global.simplestore && global.simplestore.Global ? global.simplestore.Global : null);
-	
-	_GlobalClass.getGlobalObject().registerModuleObject(new Module());
-
-	// dependencies
-	_GlobalClass.getGlobalObject().registerModuleDepency('currenciesmodules', 'common');
-	_GlobalClass.getGlobalObject().registerModuleDepency('currenciesmodules', 'clientmodules');
+	var _GlobalClass = ( global && global.simplestore && global.simplestore.Global ? global.simplestore.Global : null);
 }
+
+_GlobalClass.getGlobalObject().registerModuleObject(new Module());
+
+// dependencies
+_GlobalClass.getGlobalObject().registerModuleDepency('currenciesmodules', 'common');
+_GlobalClass.getGlobalObject().registerModuleDepency('currenciesmodules', 'clientmodules');
