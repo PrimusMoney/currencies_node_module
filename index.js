@@ -1,5 +1,6 @@
 /**
  * @author PrimusMoney
+ * @name @primusmoney/currencies
  * @homepage https://www.primusmoney.com/
  * @license UNLICENSED
  */

@@ -5,7 +5,7 @@ var Module = class {
 	
 	constructor() {
 		this.name = 'mvc-currencies';
-		this.current_version = "0.30.2.2021.05.15";
+		this.current_version = "0.30.4.2021.05.15";
 		
 		this.global = null; // put by global on registration
 		this.app = null;
