@@ -28,11 +28,11 @@ class BrowserLoad {
 			_globalscope.global_scope_no_load = true;
 			_globalscope.dapp_browser_no_load = true;
 
-			// get ethereum_core
-			var ethereum_core = this.node_module.ethereum_core;
+			// get primus_client_wallet
+			var primus_client_wallet = this.node_module.primus_client_wallet;
 			
-			if (ethereum_core.initialized === false) {
-				console.log('WARNING: ethereum_core should be initialized before initializing ethereum_erc20');
+			if (primus_client_wallet.initialized === false) {
+				console.log('WARNING: @primusmone/client_wallet should be initialized before initializing @primusmoney/currencies');
 			}
 			
 			// get node module objects
