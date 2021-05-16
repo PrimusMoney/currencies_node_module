@@ -5,7 +5,7 @@ var Module = class {
 	
 	constructor() {
 		this.name = 'mvc-currencies';
-		this.current_version = "0.30.4.2021.05.15";
+		this.current_version = "0.30.6.2021.05.15";
 		
 		this.global = null; // put by global on registration
 		this.app = null;
@@ -386,7 +386,6 @@ var Module = class {
 	}
 
 
-
 	async _createCurrencyAmount(session, currency, position) {
 		var global = this.global;
 		var _apicurrencies = this._getCurrenciesAPI();
@@ -688,6 +687,57 @@ var Module = class {
 		return _currencies;
 	}
 
+ 	async readLocalCurrencies(sessionuuid) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var _apicurrencies = this._getCurrenciesAPI();
+
+		return _apicurrencies.readLocalCurrencies(session);
+	}
+
+	async saveLocalCurrencies(sessionuuid, currencies) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+			
+		var _apicurrencies = this._getCurrenciesAPI();
+
+		return _apicurrencies.saveLocalCurrencies(session, currencies);	
+	}
+
+	async saveLocalCurrency(sessionuuid, currency) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var _apicurrencies = this._getCurrenciesAPI();
+
+		return _apicurrencies.saveLocalCurrency(session, currency);	
+	}
+
+ 
 
 	async getCurrencies(sessionuuid, walletuuid) {
 		if (!sessionuuid)

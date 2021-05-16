@@ -142,6 +142,89 @@ var Module = class {
 		}
 	}
 
+	async readLocalCurrencies(session) {
+		var global = this.global;
+
+		var commonmodule = global.getModuleObject('common');
+		var walletmodule = this;
+		
+		var _keys = ['shared', 'currencies', 'currencies']; // look in 'shared' branch
+
+		var clientAccess = session.getClientStorageAccessInstance();
+		
+		var currencies = await new Promise((resolve, reject) => { 
+			clientAccess.readClientSideJson(_keys, (err, res) => {
+				if (err) {
+					resolve([]);
+				}
+				else {
+					var _currencies = res;
+					
+					resolve(_currencies);
+				}
+			});
+		})
+		.catch(err => {
+			currencies = [];
+		});
+
+		return currencies
+	}
+
+	_checkCurrencyInMemory(currency) {
+		var currencyuuid = currency.uuid;
+
+		var curr = this.getCurrency(currencyuuid);
+
+		if (!curr)
+		this.addCurrency(currency);
+	}
+
+	async saveLocalCurrencies(session, currencies) {
+		var global = this.global;
+
+		for (var i = 0; i < currencies.length; i++) {
+			this._checkCurrencyInMemory(currencies[i]);
+		}
+
+		var _keys = ['shared', 'currencies', 'currencies']; // look in 'shared' branch
+		
+		// create json
+		var clientAccess = session.getClientStorageAccessInstance();
+		
+		return new Promise((resolve, reject) => { 
+			clientAccess.saveClientSideJson(_keys, currencies, (err, res) => {
+				if (err) reject(err); else resolve(res);
+			});
+		});
+	}
+
+	async saveLocalCurrency(session, currency) {
+		var currencies = await this.readLocalCurrencies(session);
+
+		if (currencies) {
+			// check if it is in the list
+			var bInList = false;
+			
+			for (var i = 0; i < currencies.length; i++) {
+				if (currency.uuid == currencies[i].uuid) {
+					bInList = true;
+					currencies[i] = currency;
+					break;
+				}
+			}
+			
+			// add it if it is not
+			if (!bInList)
+			currencies.push(currency);
+		
+			return this.saveLocalCurrencies(session, currencies);
+		}
+		else {
+			return Promise.reject('could not retrieve the list of schemes');
+		}
+	}
+
 	async getCurrencyScheme(session, currency) {
 		if (!session)
 			return Promise.reject('session is undefined');

@@ -34,7 +34,28 @@ var ModuleControllers = class {
 		var global = this.global;
 		var currenciesmodule = global.getModuleObject('currencies');
 
-		return currenciesmodule.getCurrencyScheme(session, currency)
+		return currenciesmodule.getCurrencyScheme(session, currency);
+	}
+
+	async readLocalCurrencies(session) {
+		var global = this.global;
+		var currenciesmodule = global.getModuleObject('currencies');
+
+		return currenciesmodule.readLocalCurrencies(session);
+	}
+
+	async saveLocalCurrencies(session, currencies) {
+		var global = this.global;
+		var currenciesmodule = global.getModuleObject('currencies');
+
+		return currenciesmodule.saveLocalCurrencies(session, currencies);
+	}
+
+	async saveLocalCurrency(session, currency) {
+		var global = this.global;
+		var currenciesmodule = global.getModuleObject('currencies');
+
+		return currenciesmodule.saveLocalCurrency(session, currency);
 	}
 
 	/***********************/
