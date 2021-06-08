@@ -38,9 +38,8 @@ var DecimalAmount = class {
 
 	async toFixedString() {
 		var session = this.session;
-		var global = session.getGlobalObject();
-		var mvcmyquotemodule = global.getModuleObject('mvc-myquote');
-		var amountstring = await mvcmyquotemodule._formatAmount(session, (this.amount !== undefined ? this.amount : 0), this.decimals);
+
+		var amountstring = await this._formatAmount(session, (this.amount !== undefined ? this.amount : 0), this.decimals);
 
 		return amountstring;
 	}
@@ -71,6 +70,42 @@ var DecimalAmount = class {
 	static async create(session, amount, decimals) {
 		// analyse amount type transform it to integer
 		return new DecimalAmount(session, amount, decimals);
+	}
+
+	async _formatAmount(session, amount, decimals, options) {
+		if (amount === undefined)
+			return;
+		
+		var _inputamountstring = amount.toString();
+		var amountstring;
+		
+		if (_inputamountstring.length > decimals) {
+			// integer part
+			var integerpart = _inputamountstring.substring(0, _inputamountstring.length - decimals);
+
+			amountstring = integerpart + '.' + _inputamountstring.substring(_inputamountstring.length - decimals);
+		}
+		else {
+			var leading = '';
+			for (var i = 0; i < (decimals -_inputamountstring.length) ; i++) leading += '0';
+			amountstring = '0.' + leading + _inputamountstring;
+		}
+
+		if (options) {
+			if (typeof options.showdecimals !== 'undefined') {
+				if (options.showdecimals === false) {
+					// we remove . and after
+					amountstring = amountstring.substring(0, amountstring.indexOf('.'));
+				}
+				else {
+					var decimalsshown = (options.decimalsshown ? options.decimalsshown : decimals);
+					amountstring = amountstring.substring(0, amountstring.indexOf('.') + 1 + decimalsshown);
+				}
+
+			}
+		}
+
+		return amountstring;
 	}
 }
 
