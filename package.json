@@ -1,6 +1,6 @@
 {
   "name": "@primusmoney/currencies",
-  "version": "0.30.7",
+  "version": "0.30.8",
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
@@ -12,7 +12,7 @@
     "test:node": "mocha ./tests/tests.js"
   },
   "dependencies": {
-    "@primusmoney/client_wallet": "^0.30.4"
+    "@primusmoney/client_wallet": "^0.30.8"
   },
   "devDependencies": {
     "chai": "^4.2.0",
