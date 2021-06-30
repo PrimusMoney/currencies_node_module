@@ -5,7 +5,7 @@ var Module = class {
 	
 	constructor() {
 		this.name = 'mvc-currencies';
-		this.current_version = "0.30.8.2021.06.09";
+		this.current_version = "0.30.10.2021.06.30";
 		
 		this.global = null; // put by global on registration
 		this.app = null;
@@ -841,6 +841,112 @@ var Module = class {
 		for (var i = 0; i < (currencies ? currencies.length : 0); i++) {
 			let _currencyaddress = (currencies[i].address ? currencies[i].address.trim().toLowerCase() : null);
 			if (_currencyaddress == tokenaddress)
+			arr.push(currencies[i]);
+		}
+
+		return arr;
+	}
+
+	async synchronizeCurrency(sessionuuid, walletuuid, currency) {
+		// to fetch name, symbol,... if it went bad during the first import
+		if (!currency)
+			return Promise.reject('currency is undefined');
+		
+		if (!currency.address)
+			return Promise.reject('currency has not token address');
+
+
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+		
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+		
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currenciesmodule = global.getModuleObject('currencies');
+
+		var currencyscheme = await currenciesmodule.getCurrencyScheme(session, currency);
+	
+		if (!currencyscheme)
+			return Promise.reject('could not find scheme of currency ' + currency.uuid);
+		
+		var childsession = await this._getMonitoredSchemeSession(session, wallet, currencyscheme);
+
+		// get erc20 token contract
+		var erc20token_contract = await _apicontrollers.importERC20Token(childsession, currency.address);
+
+		// re-fetch main elements
+		currency.name = await erc20token_contract.getChainName();
+		currency.symbol = await erc20token_contract.getChainSymbol();
+		currency.decimals = await erc20token_contract.getChainDecimals();
+
+		// then save currency
+		await currenciesmodule.saveLocalCurrency(session, currency);
+
+		return currency;
+	}
+
+	async setCurrencyDescription(sessionuuid, walletuuid, currencyuuid, description) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+		
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+
+
+		var currenciesmodule = global.getModuleObject('currencies');
+
+		// set description
+		currency.description = description;
+		
+		// then save currency
+		await currenciesmodule.saveLocalCurrency(session, currency);
+
+		return currency;
+	}
+
+	async getCurrenciesFromAddress(sessionuuid, walletuuid, schemeuuid, address) {
+		var currencies = await this.getCurrencies(sessionuuid, walletuuid);
+
+		var arr = [];
+		var tokenaddress = (address ? address.trim().toLowerCase() : null);
+
+		for (var i = 0; i < (currencies ? currencies.length : 0); i++) {
+			let _currencyaddress = (currencies[i].address ? currencies[i].address.trim().toLowerCase() : null);
+			if ((currencies[i].scheme_uuid == schemeuuid) && (_currencyaddress == tokenaddress))
 			arr.push(currencies[i]);
 		}
 
@@ -1946,7 +2052,7 @@ var Module = class {
 		// get erc20 token contract
 		var erc20token_contract = await _apicontrollers.importERC20Token(cardsession, tokenaddress);
 
-		var currency = {uuid: session.guid(), address: tokenaddress};
+		var currency = {uuid: session.guid(), address: tokenaddress, xtra_data: {origin: 'import-from-token-address'}};
 
 		currency.name = await erc20token_contract.getChainName();
 		currency.symbol = await erc20token_contract.getChainSymbol();
