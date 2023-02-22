@@ -101,6 +101,43 @@ var Module = class {
 	//
 
 
+	_canWalletHandleScheme(wallet, scheme) {
+		if (!wallet || !scheme)
+			return false;
+
+		if (scheme.isRemote()) {
+			var walletschemeuuid = wallet.getSchemeUUID();
+
+			// TODO: we could look if authserver are the same
+			if (walletschemeuuid && (walletschemeuuid === scheme.getSchemeUUID()))
+				return true;
+			else
+				return false;
+		}
+		else {
+			return true;
+		}
+	}
+
+	async _createDummyWalletSession(walletsession) {
+		// we create a dummy session (not registered in session_array) and
+		// we set it to the correct instance before calling _getEthereumTransaction and other methods
+		var global = this.global;
+		const Session = global.getModuleClass('common', 'Session')
+		var fetchsession = new Session(global);
+		fetchsession.setSessionUUID(walletsession.getSessionUUID()); // serving as placeholder for authkey
+		fetchsession.DUMMY_SESSION_UUID = walletsession.guid();
+		fetchsession.DUMMY_SESSION_WALLET = walletsession;
+
+		// point to walletsession properties (avoid storage to make this session unharmful)
+		fetchsession.authkey = walletsession.authkey;
+		fetchsession.authkey_server_access_instance = walletsession.authkey_server_access_instance;
+		fetchsession.cryptokeymap = walletsession.cryptokeymap;
+		fetchsession.user = walletsession.user;
+		fetchsession.xtraconfig = walletsession.xtraconfig;
+
+		return fetchsession;
+	}
 	
 	//
 	// Currencies functions
@@ -245,34 +282,28 @@ var Module = class {
 			.catch(err => {});
 		}
 		else {
-			// scheme has probably already been created with web3providerurl
-			var web3url = currency.web3providerurl;
+			var walletmodule = global.getModuleObject('wallet');
+
+			// pick local default (as default)
+			scheme = walletmodule.getDefaultScheme(session, 0);
+
+/* 			// local scheme has probably already been created with web3providerurl
+			var web3url = (currency.ethnodeserver && currency.ethnodeserver.web3_provider_url ? currency.ethnodeserver.web3_provider_url : (currency.web3providerurl ? currency.web3providerurl : null));
 			scheme = await walletmodule.getSchemeFromWeb3Url(session, web3url)
-			.catch(err => {});
+			.catch(err => {}); // note: returns local schemes, use getLocalSchemeFromWeb3Url for version > 0.30.10
 
 			if (!scheme) {
 				// if not, we create a local scheme now and save it
 				var defaultlocalscheme = await walletmodule.getDefaultScheme(session, 0);
 				scheme = await defaultlocalscheme.cloneOnWeb3ProviderUrl(web3url)
 				.catch(err => {});
-			}
+			} */
 		}
 	
 		return scheme;
 	}
 
-	async getCurrencyWeb3ProviderUrl(session, currency) {
-		if (currency.web3providerurl)
-			return currency.web3providerurl;
-		else {
-			var scheme = await this.getCurrencyScheme(session, currency);
 
-			if (scheme)
-				return scheme.getWeb3ProviderUrl();
-			else
-				console.log('currency is badly configured ' + currency.uuid);
-		}
-	}
 
 
 }

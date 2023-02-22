@@ -106,6 +106,9 @@ class NodeLoad {
 				console.log('currencies modules loaded');
 			});
 
+			// we add initialization done in ./includes/modules/module-load.js
+			_globalscope.simplestore.BigNumber = _noderequire('bignumber.js');
+
 			// currencies modules ready (sent by currenciesmodules module at the end of registerHooks)
 			checkmodulesload.wait('currenciesmodules');
 			rootscriptloader.registerEventListener('on_currencies_modules_ready', function(eventname) {
@@ -131,18 +134,18 @@ class NodeLoad {
 
 
 			
-			// uniswap
-			ScriptLoader.reclaimScriptLoaderName('uniswaploader'); // in case another node module used this name
-			currenciesmodulescriptloader.getChildLoader('uniswaploader'); // create loader with correct root dir
+			// ethnode-currencies
+			ScriptLoader.reclaimScriptLoaderName('ethnodecurrenciesloader'); // in case another node module used this name
+			currenciesmodulescriptloader.getChildLoader('ethnodecurrenciesloader'); // create loader with correct root dir
 
-			currenciesmodulescriptloader.push_script('./includes/modules/uniswap/module.js', function () {
-				console.log('uniswap module loaded');
+			currenciesmodulescriptloader.push_script('./includes/modules/ethnode/module.js', function () {
+				console.log('ethnodecurrencies module loaded');
 			});
 
-			// uniswap module ready (sent by uniswap module at the end of registerHooks)
-			checkmodulesload.wait('uniswap');
-			rootscriptloader.registerEventListener('on_uniswap_module_ready', function(eventname) {
-				checkmodulesload.check('uniswap');
+			// ethnodecurrencies module ready (sent by uniswap module at the end of registerHooks)
+			checkmodulesload.wait('ethnodecurrencies');
+			rootscriptloader.registerEventListener('on_ethnode_currencies_module_ready', function(eventname) {
+				checkmodulesload.check('ethnodecurrencies');
 			});
 
 

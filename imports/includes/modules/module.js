@@ -3,7 +3,7 @@
 var Module = class {
 	constructor() {
 		this.name = 'currenciesmodules';
-		this.current_version = "0.30.10.2021.06.30";
+		this.current_version = "0.30.15.2023.02.22";
 		
 		this.global = null; // put by global on registration
 		this.isready = false;

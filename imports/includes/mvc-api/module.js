@@ -2,10 +2,20 @@
 
 
 var Module = class {
+
+	static get DEFAULT_GAS_LIMIT() { return 4850000;}
+	static get DEFAULT_GAS_PRICE() { return 10000000000;}
+	static get DEFAULT_GAS_UNIT() { return 21000;}
+
+	static get AVG_TRANSACTION_FEE() { return 0.00021;}
+
+	static get TRANSACTION_UNITS_MIN() { return 240;} 
+		// AVG_TRANSACTION_FEE * TRANSACTION_UNITS_MIN should be higher than DEFAULT_GAS_LIMIT * DEFAULT_GAS_PRICE
+
 	
 	constructor() {
 		this.name = 'mvc-currencies';
-		this.current_version = "0.30.10.2021.06.30";
+		this.current_version = "0.30.15.2023.02.22";
 		
 		this.global = null; // put by global on registration
 		this.app = null;
@@ -121,22 +131,9 @@ var Module = class {
 	//
 
 	_canWalletHandleScheme(wallet, scheme) {
-		if (!wallet || !scheme)
-			return false;
-
-		if (scheme.isRemote()) {
-			var walletschemeuuid = wallet.getSchemeUUID();
-
-			// TODO: we could look if authserver are the same
-			if (walletschemeuuid && (walletschemeuuid === scheme.getSchemeUUID()))
-				return true;
-			else
-				return false;
-		}
-		else {
-			return true;
-		}
-
+		var global = this.global;
+		var currenciesmodule = global.getModuleObject('currencies');
+		return currenciesmodule._canWalletHandleScheme(wallet, scheme);
 	}
 
 	async _createMonitoredEthereumTransaction(wallet, card, session, fromaccount) {
@@ -152,19 +149,25 @@ var Module = class {
 	// Scheme functions
 	//
 
+	_getSchemeSessionMap(session) {
+		var schemesessionmap = session.getSessionVariable('schemesessionmap');
+		
+		if (!schemesessionmap) {
+			schemesessionmap = Object.create(null);
+			session.setSessionVariable('schemesessionmap', schemesessionmap);
+		}
+
+		return schemesessionmap;
+	}
+
 	async _getChildSessionOnScheme(parentsession, scheme) {
 		var global = this.global;
 		var _apicontrollers = this._getClientAPI();
 
 		if (!parentsession)
-			return Promise.reject('could not find create child of null session');
+			return Promise.reject('could not create child of null session');
 
-		var schemesessionmap = parentsession.getSessionVariable('schemesessionmap');
-		
-		if (!schemesessionmap) {
-			schemesessionmap = Object.create(null);
-			parentsession.setSessionVariable('schemesessionmap', schemesessionmap);
-		}
+		var schemesessionmap = this._getSchemeSessionMap(parentsession);
 		
 		// we could look if a pre-existing session with corresponding web3providerurl could be re-used
 		var schemeuuid = scheme.getSchemeUUID();
@@ -174,10 +177,10 @@ var Module = class {
 
 		// else we create one and set it
 		var childsession = await _apicontrollers.createChildSessionObject(parentsession);
-		childsession.MYQUOTE = this.current_version;
+		childsession.MYCURRENCY = this.current_version;
 
-		if (!parentsession.MYQUOTE_ROOT)
-			parentsession.MYQUOTE_ROOT = this.current_version;
+		if (!parentsession.MYCURRENCY_ROOT)
+			parentsession.MYCURRENCY_ROOT = (this.current_version ? this.current_version : 'xxx');
 
 		var networkconfig = scheme.getNetworkConfig();
 
@@ -190,6 +193,7 @@ var Module = class {
 
 
 	async _getMonitoredSchemeSession(session, wallet, scheme) {
+		console.log('OBSOLETE: Module._getMonitoredSchemeSession should no longer be used, should use Module._getMonitoredCurrencySession!')
 		var fetchsession;
 
 		if (!scheme)
@@ -201,8 +205,35 @@ var Module = class {
 				var schemeuuid = scheme.getSchemeUUID();
 	
 				if (this._canWalletHandleScheme(wallet, scheme)) {
-					// use wallet session
-					fetchsession = wallet._getSession();
+					let walletsession = wallet._getSession();
+
+					let network = scheme.getNetworkConfig();
+					let ethnodeserver = (network.ethnodeserver ? network.ethnodeserver : {});
+
+					if (ethnodeserver && ethnodeserver.web3_provider_url) {
+						// scheme overloaded for serving ethnode access
+						var schemesessionmap = this._getSchemeSessionMap(walletsession);
+
+						fetchsession = schemesessionmap[scheme.uuid];
+	
+						if (!fetchsession) {
+								// FIX v0.30.10: since version 0.30.10 does not pass web3providerurl to lower levels functions
+								// and relies on session.ethereum_node_access_instance in getEthereumNodeAccessInstance(session)
+								fetchsession = await this._createDummyWalletSession(walletsession);
+								fetchsession.DUMMY_SESSION_SCHEME = scheme;
+								schemesessionmap[scheme.uuid] = fetchsession;
+	
+								await this._setMonitoredEthereumNodeAccess(fetchsession, ethnodeserver);
+							
+					
+							}
+					}
+					else {
+						fetchsession = walletsession;
+					}
+
+
+
 				}
 				else {
 					return Promise.reject('ERR_MISSING_CREDENTIALS');
@@ -225,13 +256,11 @@ var Module = class {
 		return fetchsession;
 	}
 
-
-
 	//
 	// Card functions
 	//
 
-	// TODO: replace by _apicontrollers.__makeWalletCard for version >= 0.20.18
+/* 	// TODO: replace by _apicontrollers.__makeWalletCard for version >= 0.20.18
 	async __makeWalletCard(session, wallet, scheme, authname, password, address) {
 		// to create a remote card on a remote wallet, with different schemes
 		var global = this.global;
@@ -354,35 +383,133 @@ var Module = class {
 	
 		}
 
-	}
+	} */
 
-	async _getCardFromAddressOnScheme(wallet, address, scheme, callback) {
-		// TODO: replace for version >= 0.20.7
-		var schemeuuid = scheme.getSchemeUUID();
-
-		return wallet.getCardsWithAddress(address).
-		then((cardarray) => {
-			for (var i = 0; i < (cardarray ? cardarray.length : 0); i++) {
-				var cardschemeuuid = cardarray[i].getSchemeUUID();
-				
-				if (cardschemeuuid == schemeuuid) {
-					return cardarray[i];
-				}
-			}
-			
-			throw new Error('ERR_CARD_NOT_FOUND');
-		});
-	}
 
 	//
 	// Currency functions
 	//
 
-	_getAverageTransactionFee(scheme) {
+	// utils
+	async _getAverageTransactionFee(session, currency, feelevel) {
 		var global = this.global;
-		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
+		var ethnodemodule = global.getModuleObject('ethnode');
+		
+		var avg_transaction_fee = Module.AVG_TRANSACTION_FEE;
 
-		return mvcclientwalletmodule._getAverageTransactionFee(scheme);
+		var ethnodeserver = await this._getCurrencyEthNodeServer(session, currency);
+		
+		if (ethnodeserver && ethnodeserver.avg_transaction_fee)
+			avg_transaction_fee = parseFloat(ethnodeserver.avg_transaction_fee.toString());
+
+		return avg_transaction_fee * (feelevel && feelevel.avg_transaction_fee_multiplier ? parseInt(feelevel.avg_transaction_fee_multiplier) : 1);
+	}
+
+	async _getTransactionUnitsAsync(session, currency, transactioncredits) {
+		// TODO: look if using DecimalAmount could improve the division
+		return this._getTransactionUnits(session, currency, transactioncredits);
+	}
+
+	async _getTransactionUnits(session, currency, transactioncredits) {
+		var global = this.global;
+		var ethnodemodule = global.getModuleObject('ethnode');
+		var ethcredit = ethnodemodule.getEtherFromwei(transactioncredits);
+		
+		var avg_transaction_fee = Module.AVG_TRANSACTION_FEE;
+
+		var ethnodeserver = await this._getCurrencyEthNodeServer(session, currency);
+		
+		if (ethnodeserver && ethnodeserver.avg_transaction_fee)
+			avg_transaction_fee = parseFloat(ethnodeserver.avg_transaction_fee.toString());
+		
+		var units = ethcredit/(avg_transaction_fee > 0 ? avg_transaction_fee : Module.AVG_TRANSACTION_FEE);
+		
+		return Math.floor(units);
+	}
+
+	// minimal number of transactions
+	async _getTransactionUnitsThreshold(session, currency, feelevel) {
+		var number = Module.TRANSACTION_UNITS_MIN;
+		var ethnodeserver = await this._getCurrencyEthNodeServer(session, currency);
+		
+		if (ethnodeserver && ethnodeserver.transaction_units_min)
+			number = parseInt(ethnodeserver.transaction_units_min.toString());
+		
+		return number * (feelevel && feelevel.transaction_units_min_multiplier ? parseInt(feelevel.transaction_units_min_multiplier) : 1);
+	}
+
+
+	async _getTransactionCreditsAsync(session, currency, transactionunits) {
+		var global = this.global;
+
+		var transactioninfo  = {};
+
+		transactioninfo.avg_transaction_fee = await this._getAverageTransactionFee(session, currency);
+		transactioninfo.units_threshold = await this._getTransactionUnitsThreshold(session, currency);
+		
+		var ethnodemodule = global.getModuleObject('ethnode');
+		var walletmodule = global.getModuleObject('wallet');
+
+		var weiamount = ethnodemodule.getWeiFromEther(transactioninfo.avg_transaction_fee);
+		var avg_transaction = await walletmodule.createDecimalAmountAsync(session, weiamount, 18);
+		var credits_decimal = await avg_transaction.multiply(transactionunits);
+
+		var credits = await credits_decimal.toInteger();
+		
+		return credits;
+	}
+	
+	async _getTransactionCredits(session, currency, transactionunits) {
+		var global = this.global;
+		var ethnodemodule = global.getModuleObject('ethnode');
+		
+		var avg_transaction_fee = Module.AVG_TRANSACTION_FEE;
+
+		var ethnodeserver = await this._getCurrencyEthNodeServer(session, currency);
+		
+		if (ethnodeserver && ethnodeserver.avg_transaction_fee)
+			avg_transaction_fee = parseFloat(ethnodeserver.avg_transaction_fee.toString());
+		
+		var transactioncredits = transactionunits*(avg_transaction_fee > 0 ? avg_transaction_fee : Module.AVG_TRANSACTION_FEE);
+		var ethcredit = ethnodemodule.getEtherFromwei(transactioncredits);
+		
+		return ethcredit;
+	}
+	
+	async _getGasLimit(session, currency, feelevel) {
+		var default_gas_limit = Module.DEFAULT_GAS_LIMIT;
+		var ethnodeserver = await this._getCurrencyEthNodeServer(session, currency);
+		
+		if (ethnodeserver && ethnodeserver.default_gas_limit)
+			default_gas_limit = parseInt(ethnodeserver.default_gas_limit.toString());
+
+		return default_gas_limit * (feelevel && feelevel.default_gas_limit_multiplier ? parseInt(feelevel.default_gas_limit_multiplier) : 1);
+	}
+	
+	async _getGasPrice(session, currency, feelevel) {
+		var default_gas_price = Module.DEFAULT_GAS_PRICE;
+		var ethnodeserver = await this._getCurrencyEthNodeServer(session, currency);
+		
+		if (ethnodeserver && ethnodeserver.default_gas_price)
+			default_gas_price = parseInt(ethnodeserver.default_gas_price.toString());
+		
+		return default_gas_price * (feelevel && feelevel.default_gas_price_multiplier ? parseInt(feelevel.default_gas_price_multiplier) : 1);
+	}
+
+	async _getGasUnit(session, currency) {
+		var default_gas_unit = Module.DEFAULT_GAS_UNIT;
+		var ethnodeserver = await this._getCurrencyEthNodeServer(session, currency);
+		
+		if (ethnodeserver && ethnodeserver.gas_unit)
+			default_gas_unit = parseInt(ethnodeserver.gas_unit.toString());
+
+		return default_gas_unit;
+	}
+	
+	async _getUnitsFromCredits(session, currency, credits) {
+		var units = await this._getTransactionUnits(session, currency, credits);
+		
+		return units;
 	}
 
 
@@ -491,6 +618,7 @@ var Module = class {
 			console.log('error in transferCurrencyAmount: ' + err);
 		});
 
+
 		if (!txhash)
 			return Promise.reject('could not send currency tokens');
 
@@ -529,60 +657,52 @@ var Module = class {
 
 	}
 
-	// TODO: use currenciesmodule.getCurrencyScheme
 	async _getCurrencyScheme(session, currency) {
-		if (!session)
-			return Promise.reject('session is undefined');
+		var global = this.global;
+		var currenciesmodule = global.getModuleObject('currencies');
+		return currenciesmodule.getCurrencyScheme(session, currency);
+	}
+
+	async _getCurrencyEthNodeServer(session, currency) {
+		var global = this.global;
+		var currenciesmodule = global.getModuleObject('ethnode-currencies');
+		return currenciesmodule.getCurrencyEthNodeServer(session, currency);
+	}
+
+	async _getCurrencyWeb3ProviderUrl(session, currency) {
+		var global = this.global;
+		var currenciesmodule = global.getModuleObject('ethnode-currencies');
+		return currenciesmodule.getCurrencyWeb3ProviderUrl(session, currency);
+	}
+
+	async getCurrencyInfo(sessionuuid, walletuuid, currencyuuid) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
 		
-		if (!currency)
-			return Promise.reject('currency is undefined');
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
 		
 		var global = this.global;
 		var _apicontrollers = this._getClientAPI();
-
-		// we look if the currency has a trade scheme specified
-		var currencyschemeuuid = (currency.scheme_uuid ? currency.scheme_uuid : null );
-		var scheme;
-
-		if (currencyschemeuuid) {
-			// a built-in scheme has been specified in currency definition
-			scheme = await _apicontrollers.getSchemeFromUUID(session, currencyschemeuuid)
-			.catch(err => {});
-		}
-		else {
-			// scheme has probably already been created with web3providerurl
-			var web3url = currency.web3providerurl;
-			scheme = await _apicontrollers.getSchemeFromWeb3Url(session, web3url)
-			.catch(err => {});
-
-			if (!scheme) {
-				// if not, we create a local scheme now and save it
-				var defaultlocalscheme = await _apicontrollers.getDefaultScheme(session, 0);
-				scheme = await defaultlocalscheme.cloneOnWeb3ProviderUrl(web3url)
-				.catch(err => {});
-			}
-		}
-
-		if (!scheme)
-			return Promise.reject('could not find scheme for currency ' + currency.uuid);
-
 	
-		return scheme;
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+		
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+
+		var currencyinfo = {};
+
+		currencyinfo.web3_provider_url = await this._getCurrencyWeb3ProviderUrl(session, currency);
+
+		return currencyinfo;
 	}
 
-	// TODO: use currenciesmodule.getCurrencyWeb3ProviderUrl
-	async _getCurrencyWeb3ProviderUrl(session, currency) {
-		if (currency.web3providerurl)
-			return currency.web3providerurl;
-		else {
-			var scheme = await this._getCurrencyScheme(session, currency);
 
-			if (scheme)
-				return scheme.getWeb3ProviderUrl();
-			else
-				console.log('currency is badly configured ' + currency.uuid);
-		}
-	}
 	
 	_compareUrl(url1, url2) {
 		var _url1 = (url1 && url1.endsWith('/') ? url1.substring(0, url1.length - 1 ) : url1);
@@ -636,6 +756,9 @@ var Module = class {
 		// we look if the currency has a pretrade scheme specified
 		var sessionuuid = session.getSessionUUID();
 		var pretradeschemeuuid = (currency.pretrade_scheme_uuid ? currency.pretrade_scheme_uuid : null );
+
+		if (!pretradeschemeuuid)
+			return;
 
 		var scheme = await _apicontrollers.getSchemeFromUUID(session, pretradeschemeuuid)
 		.catch(err => {});
@@ -802,7 +925,8 @@ var Module = class {
 
 			// pretrade_explorer_url
 			var currency_pretrade_scheme = await this._getPretradeScheme(session, array[i]).catch(e=>{});
-			var currency_pretrade_ethnode_conf = (currency_pretrade_scheme ? currency_pretrade_scheme.getEthNodeServerConfig() : null);
+			var currency_pretrade_scheme_json = (currency_pretrade_scheme ? currency_pretrade_scheme.getJsonConfig() : null);
+			var currency_pretrade_ethnode_conf = (currency_pretrade_scheme_json && currency_pretrade_scheme_json.ethnodeserver ? currency_pretrade_scheme_json.ethnodeserver : null);
 
 			array[i].pretrade_web3_provider_url = (currency_pretrade_ethnode_conf ? currency_pretrade_ethnode_conf.web3_provider_url : null)
 			array[i].pretrade_explorer_url = (currency_pretrade_ethnode_conf ? currency_pretrade_ethnode_conf.explorerurl : null)
@@ -882,7 +1006,7 @@ var Module = class {
 		if (!currencyscheme)
 			return Promise.reject('could not find scheme of currency ' + currency.uuid);
 		
-		var childsession = await this._getMonitoredSchemeSession(session, wallet, currencyscheme);
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
 
 		// get erc20 token contract
 		var erc20token_contract = await _apicontrollers.importERC20Token(childsession, currency.address);
@@ -1106,6 +1230,16 @@ var Module = class {
 		return schemeinfo;
 	}
 
+	async _findCardCurrency(session, wallet, card) {
+		let xtradata = card.getXtraData('myquote');
+
+		if (xtradata && xtradata.currencyuuid) {
+			let currency = await this.getCurrencyFromUUID(session.getSessionUUID(), xtradata.currencyuuid);
+
+			return currency;
+		}
+	}
+
 	async findCardCurrency(sessionuuid, walletuuid, carduuid) {
 		if (!sessionuuid)
 			return Promise.reject('session uuid is undefined');
@@ -1134,14 +1268,7 @@ var Module = class {
 		if (!card)
 			return Promise.reject('could not find card ' + carduuid);
 
-		let xtradata = card.getXtraData('myquote');
-
-		if (xtradata && xtradata.currencyuuid) {
-			let currency = await this.getCurrencyFromUUID(sessionuuid, xtradata.currencyuuid);
-
-			return currency;
-		}
-
+		return this._findCardCurrency(session, wallet, card);
 	}
 
 	async getCurrencyCard(sessionuuid, walletuuid, currencyuuid) {
@@ -1177,7 +1304,6 @@ var Module = class {
 
 		if (!card)
 			return Promise.reject('could not find currency card for wallet ' + walletuuid);
-
 
 		var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 
@@ -1292,9 +1418,74 @@ var Module = class {
 		if (!wallet)
 			return Promise.reject('could not find wallet ' + walletuuid);
 
-		// TODO: replace by _apicontrollers.createWalletCard for version >= 0.20.18
-		const card = await this._createWalletCard(session, wallet, scheme, privatekey); 
-		//const card = await _apicontrollers.createWalletCard(session, wallet, scheme, privatekey);
+		// note: wallet.importCard uses getFirstCardWithAddress which replaces
+		// a pre-existing currency card
+
+		var sessionaccount = await _apicontrollers.getSessionAccountFromPrivateKey(session, wallet, privatekey);
+		var card_address = sessionaccount.getAddress();
+
+		var sibling_cards = await wallet.getCardsWithAddress(card_address).catch(err => {});
+		sibling_cards = (sibling_cards ? sibling_cards : []);
+
+		// create a wallet card
+		//const card = await this._createWalletCard(session, wallet, scheme, privatekey); 
+		const card = await _apicontrollers.createWalletCard(session, wallet, scheme, privatekey);
+
+
+		if (sibling_cards.length > 0) {
+			try {
+				// we already had at least a card with same address
+				// and createWalletCard returned us the first card
+				let _xtradata = card.getXtraData('myquote');
+
+				_xtradata = (_xtradata ? _xtradata : {});
+				let _former_currencyuuid = _xtradata.currencyuuid;
+
+				if (_former_currencyuuid && (_former_currencyuuid != currencyuuid)) {
+					// we will overload the currency when saving
+					// look if we have no other card for this currency
+					// to re-add it if necessary
+					let bInsert = true;
+
+					for (var i = 1; i < sibling_cards.length; i++) {
+						let sibling_card = sibling_cards[i];
+						let _sibling_xtradata = sibling_card.getXtraData('myquote');
+						let _sibling_currencyuuid = _sibling_xtradata.currencyuuid;
+
+						if (_sibling_currencyuuid == _former_currencyuuid) {
+							bInsert = false;
+							break;
+						}
+					}
+
+					if (bInsert === true) {
+						// we re-insert the card that has been replaced
+						let _old_card = await wallet.cloneCard(card, scheme).catch(err => {});
+
+						if (_old_card) {
+							// re-initialize
+							if (_old_card.isLocked()) {
+								await _old_card.unlock();
+							}
+
+							let _old_xtradata = Object.assign({}, _xtradata);
+
+							xtradata = (xtradata ? xtradata : {});
+							_old_xtradata.currencyuuid = _former_currencyuuid;
+					
+							_old_card.putXtraData('myquote', _old_xtradata);
+
+							await _old_card.save()
+						}					
+					}
+
+				}
+			}
+			catch(e) {
+				console.log('could not re-insert pre-existing currency card: ' + card_address);
+			};
+
+		}
 
 		if (!card)
 			return Promise.reject('could not create card');
@@ -1434,13 +1625,20 @@ var Module = class {
 		if (!wallet)
 			return Promise.reject('could not find wallet ' + walletuuid);
 
-		// look if we have a card with this address
-		// TODO: uncomment for version >= 0.20.7
-		//var card = await wallet.getCardFromAddressOnScheme(address, scheme)
-		var card = await this._getCardFromAddressOnScheme(wallet, address, scheme)
-		.catch(err => {
-			console.log('error in getCurrencyCardWithAddress ' + err);
-		});
+		// look if we have a card with this address for this currency
+		var card;
+		var cardarray = await wallet.getCardsWithAddress(address);
+
+		for (var i = 0; i < (cardarray ? cardarray.length : 0); i++) {
+			let xtradata = cardarray[i].getXtraData('myquote');
+
+			xtradata = (xtradata ? xtradata : {});
+			
+			if (xtradata.currencyuuid == currencyuuid) {
+				card = cardarray[i];
+				break;
+			}
+		}
 
 		if (card) {
 			// return cardinfo
@@ -1625,15 +1823,18 @@ var Module = class {
 		var cardaddress = cardinfo.address;
 		
 		// get a childsession on currency scheme
-		var valuescheme = await this._getCurrencyScheme(session, currency);
-		var childsession = await this._getMonitoredSchemeSession(session, wallet, valuescheme);
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+		var position;
+		var web3providerurl = await this._getCurrencyWeb3ProviderUrl(childsession, currency);
 
-		const position = await _apicontrollers.getAddressERC20Position(childsession, null, tokenaddress, cardaddress)
+		position = await _apicontrollers.getAddressERC20Position(childsession, web3providerurl, tokenaddress, cardaddress)
 		.catch((err) => {
 			position = 0;
 		});
 
-		return this._createCurrencyAmount(childsession, currency, position);
+		var currency_amount = await this._createCurrencyAmount(childsession, currency, position);
+
+		return currency_amount;
 	}
 
 	async getCurrencyCardCredits(sessionuuid, walletuuid, currencyuuid) {
@@ -1671,34 +1872,919 @@ var Module = class {
 		var carduuid = card.getCardUUID();
 		var schemeuuid = card.getSchemeUUID();
 
-		var credits = await mvcclientwalletmodule.getCreditBalance(sessionuuid, walletuuid, carduuid);
+		var credits = await this.getCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid);
 
-		credits.threshold = await mvcclientwalletmodule.getSchemeTransactionUnitsThreshold(sessionuuid, schemeuuid);
+		credits.threshold = await this.getCurrencyTransactionUnitsThreshold(sessionuuid, walletuuid, currencyuuid);
 
 		return credits;
 	}
 
-	async _getMonitoredCardSession(session, wallet, card) {
-		var cardsession = card._getSession();
+	async _getEthereumTransaction(session, txhash) {
+		var global = this.global;
 
-/* 		var scheme = card.getScheme();
+		var ethereumnodeaccessmodule = global.getModuleObject('ethereum-node-access');
 
-		if (scheme.isRemote()) {
-			if (wallet) {
-				var walletschemeuuid = wallet.getSchemeUUID();
-				var schemeuuid = scheme.getSchemeUUID();
-	
-				if (this._canWalletHandleScheme(wallet, scheme)) {
-					// use wallet session
-					cardsession = wallet._getSession();
+		const result = new Promise((resolve, reject) => { 
+			ethereumnodeaccessmodule.readEthereumTransactionObject(session, txhash, (err, res) => {
+				if (err) reject(err);
+				else {
+					var ethereumnodeaccessmodule = global.getModuleObject('ethereum-node-access');
+					var data = res.data;
+					try {
+						// can throw invalid UTF8 detected
+						res.data_decoded_utf8 = ethereumnodeaccessmodule.web3ToUTF8(session, data);
+					}
+					catch(e) {}
+				
+					resolve(res);
 				}
-			}
-		}
- */
-		return cardsession;
+			})
+			.then(res => {
+				// fixing missing callback call when data == null
+				// in EthereumNodeAccess.readEthereumTransactionObject
+				if (res)
+					return res;
+				else
+					throw new Error('no transaction found with hash ' + txhash);
+			})
+			.catch(err => {
+				reject(err);
+			});
+		});
+		
+		return result;
 	}
 
-	async canPayAmount(sessionuuid, walletuuid, carduuid, toaddress, currencyuuid, amount, feelevel = null) {
+	async _readTransaction(session, txhash) {
+		var global = this.global;
+		
+		var ethchainreadermodule = global.getModuleObject('ethchainreader');
+		
+		var chainreaderinterface = ethchainreadermodule.getChainReaderInterface(session);
+		
+		const result = new Promise((resolve, reject) => { 
+			chainreaderinterface.getTransaction(txhash,(err, res) => {
+				if (err) reject(err); 
+				else {
+					var ethereumnodeaccessmodule = global.getModuleObject('ethereum-node-access');
+					var input = res.input;
+					try {
+						res.input_decoded_utf8 = ethereumnodeaccessmodule.web3ToUTF8(session, input);
+					}
+					catch(e) {}
+				
+					resolve(res);
+				}
+			})			
+			.then(res => {
+				// fixing missing callback calls when data == null
+				// because of error read property of null in Transaction._createTransactionObject
+				if (res)
+					return res;
+				else
+					throw new Error('no transaction found with hash ' + txhash);
+			})
+			.catch(err => {
+				reject(err);
+			});
+		});
+		
+		return result;
+	}
+
+	async getCurrencyEthereumTransaction(sessionuuid, walletuuid, currencyuuid, txhash) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+
+		// TODO: uncomment for version >= 0.30.8
+		//var ethereumtransaction = await _apicontrollers.getEthereumTransaction(childsession, txhash);
+		var ethereumtransaction = await this._getEthereumTransaction(childsession, txhash);
+		
+		ethereumtransaction._ethtx = await this._readTransaction(childsession, txhash);
+		//ethereumtransaction._ethtx = await apicontrollers.readTransaction(childsession, txhash);
+
+		return ethereumtransaction;
+	}
+
+	async getCurrencyEthereumTransactionReceipt(sessionuuid, walletuuid, currencyuuid, txhash) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+
+		var ethereumtransactionreceipt = await _apicontrollers.getEthereumTransactionReceipt(childsession, txhash);
+
+		return ethereumtransactionreceipt;
+	}
+
+	async getCurrencyERC20TokenInfo(sessionuuid, walletuuid, currencyuuid, tokenaddress) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+
+		// get erc20 token contract
+		var erc20token_contract = await _apicontrollers.importERC20Token(childsession, tokenaddress);
+
+		var token = {address: tokenaddress};
+
+		token.name = await erc20token_contract.getChainName();
+		token.symbol = await erc20token_contract.getChainSymbol();
+		token.decimals = await erc20token_contract.getChainDecimals();
+
+		return token;
+	}
+
+	async getCurrencyTransactionInfo(sessionuuid, walletuuid, currencyuuid, txhash) {
+		var tx_info = {hash: txhash};
+
+		if (!sessionuuid)
+			return tx_info;
+
+		if (!walletuuid)
+			return tx_info;
+
+		if (!currencyuuid)
+			return tx_info;
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+	
+		try {
+			let bTokenTx = false;
+
+			// TODO: find if this is a token transaction
+
+			// get transaction for more specific info
+			let transaction = await this.getCurrencyEthereumTransaction(sessionuuid, walletuuid, currencyuuid, txhash)
+			.catch(err => {
+				console.log('could not retrieve transaction in getCurrencyTransactionInfo: ' + err);
+			});
+			let tx = (transaction ? transaction._ethtx : null);
+
+			if (tx) {
+				tx_info.time = tx.time;
+				tx_info.status_int = 5; // pending
+
+				// get transaction receipt
+				let tx_receipt = await this.getCurrencyEthereumTransactionReceipt(sessionuuid, walletuuid, currencyuuid, txhash).catch(err => {});
+
+				if (tx_receipt) {
+					tx_info.blockNumber = tx_receipt.blockNumber;
+					tx_info.from_address = tx_receipt.from;
+					tx_info.status = tx_receipt.status;
+					tx_info.status_int = (tx_receipt.status ? 10 : -10); // 1 success, -1 fail
+		
+					if (bTokenTx) {
+						// erc20 format
+						tx_info.tokenaddress = tx_receipt.to
+						tx_info.amount = (tx_receipt.logs && tx_receipt.logs[0] ? parseInt(tx_receipt.logs[0].data) : null);
+						tx_info.to_address = (tx_receipt.logs && tx_receipt.logs[0] && tx_receipt.logs[0].topics && tx_receipt.logs[0].topics[2] ? '0x' + tx_receipt.logs[0].topics[2].substring(26) : null);
+					}
+				}
+			}
+			else {
+				tx_info.status_int = -5; // not found
+			}
+		}
+		catch(e) {
+			console.log('exception in getCurrencyTransactionInfo: ' + e);
+		}
+
+		return tx_info;
+	}
+
+	async _createDummyWalletSession(walletsession) {
+		var global = this.global;
+		var currenciesmodule = global.getModuleObject('currencies');
+		return currenciesmodule._createDummyWalletSession(walletsession);
+	}
+
+	async _setMonitoredEthereumNodeAccess(session, ethnodeserver) {
+		var global = this.global;
+		var ethnodecurrenciesmodule = global.getModuleObject('ethnode-currencies');
+		return ethnodecurrenciesmodule._setMonitoredEthereumNodeAccess(session, ethnodeserver);
+	}
+
+	async _getMonitoredCurrencySession(session, wallet, currency) {
+		var global = this.global;
+		var ethnodecurrenciesmodule = global.getModuleObject('ethnode-currencies');
+		return ethnodecurrenciesmodule._getMonitoredCurrencySession(session, wallet, currency);
+	}
+
+	async _getMonitoredCardSession(session, wallet, card) {
+		var currency = await this._findCardCurrency(session, wallet, card);
+	
+		return this._getMonitoredCurrencySession(session, wallet, currency);
+	}
+
+	async getCurrencyTransactionUnitsThreshold(sessionuuid, walletuuid, currencyuuid) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		var _apicontrollers = this._getClientAPI();
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+
+		
+		var threshold = await this._getTransactionUnitsThreshold(session, currency);
+		
+		return threshold;
+	}
+
+	async getCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid) {
+		
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		if (!carduuid)
+			return Promise.reject('card uuid is undefined');
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+		
+		var card = await wallet.getCardFromUUID(carduuid);
+		
+		if (!card)
+			return Promise.reject('could not find card ' + carduuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+		
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+
+		var ethereumnodeaccess;
+		
+		if (childsession.ethereum_node_access_instance) {
+			// _getMonitoredCurrencySession has set ethereumnodeaccess for a remote access
+			ethereumnodeaccess = childsession.ethereum_node_access_instance;
+		}
+		else {
+			let ethnodemodule = global.getModuleObject('ethnode');
+			
+			ethereumnodeaccess  = ethnodemodule.getEthereumNodeAccessInstance(childsession);
+		}
+	
+		//var transactioncredits = await card.getTransactionCredits();
+		//var transactionunits = await card.getTransactionUnits();
+		var card_address = card.getAddress();
+		var transactioncredits = await ethereumnodeaccess.web3_getBalance(card_address);
+		var transactionunits = await this._getTransactionUnits(session, currency, transactioncredits);
+	
+		
+		var credits = {transactioncredits: transactioncredits, transactionunits: transactionunits};
+
+		// add threshold		
+		//credits.threshold = await this.getCurrencyTransactionUnitsThreshold(sessionuuid, walletuuid, currencyuuid);
+		credits.threshold = await this._getTransactionUnitsThreshold(session, currency);
+
+		return credits;
+	}
+
+
+	async getCurrencyTransactionContext(sessionuuid, currencyuuid, feelevel = null) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+		
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+		var transactioninfo  = {};
+
+		transactioninfo.gasLimit = await this._getGasLimit(session, currency, feelevel);
+		transactioninfo.gasPrice = await this._getGasPrice(session, currency, feelevel);
+		transactioninfo.avg_transaction_fee = await this._getAverageTransactionFee(session, currency, feelevel);
+		transactioninfo.units_threshold = await this._getTransactionUnitsThreshold(session, currency, feelevel);
+		
+		var ethnodemodule = global.getModuleObject('ethnode');
+
+		var weiamount = ethnodemodule.getWeiFromEther(transactioninfo.avg_transaction_fee);
+		var avg_transaction = await this._createDecimalAmount(session, weiamount, 18);
+		var credits_threshold = await avg_transaction.multiply(transactioninfo.units_threshold);
+
+		transactioninfo.credits_threshold = await credits_threshold.toInteger();
+
+		return transactioninfo;
+	}
+
+	async _getRecommendedFeeLevel(session, wallet, card, currency, tx_fee) {
+		// standard fee level
+		var	feelevel = {
+			default_gas_limit_multiplier: 1,
+			default_gas_price_multiplier: 1,
+			avg_transaction_fee_multiplier: 1, 
+			transaction_units_min_multiplier: 1
+		};
+
+		// get scheme transaction info
+		var sessionuuid = session.getSessionUUID();
+		var ethnodeserver = await this._getCurrencyEthNodeServer(session, currency);
+		var tx_info = await this.getCurrencyTransactionContext(sessionuuid, currency.uuid, feelevel);
+
+		var gasLimit = tx_info.gasLimit;
+		var gasPrice = tx_info.gasPrice;
+		var avg_transaction_fee = tx_info.avg_transaction_fee;
+
+		var gas_unit = (ethnodeserver && ethnodeserver.gas_unit ? parseInt(ethnodeserver.gas_unit) : 21000);
+		var credit_cost_unit_ratio = (avg_transaction_fee * 1000000000000000000) / (gas_unit * gasPrice);
+
+		// execution cost
+		var units_exec_fee; 
+		var credits_exec_fee;
+		
+		if (tx_fee.estimated_cost_credits) {
+			credits_exec_fee = tx_fee.estimated_cost_credits;
+			units_exec_fee = await this._getUnitsFromCredits(session, currency, credits_exec_fee);
+		}
+		else {
+			units_exec_fee = (tx_fee.estimated_cost_units ? Math.ceil(tx_fee.estimated_cost_units / credit_cost_unit_ratio) : 1);
+			credits_exec_fee = await this._getTransactionCreditsAsync(session, currency, units_exec_fee);
+		}
+
+		// max price
+		var credits_max_fee = gasLimit * gasPrice;
+		var units_max_fee =  await this._getUnitsFromCredits(session, currency, credits_max_fee);
+
+		if (units_exec_fee > units_max_fee)
+			feelevel.default_gas_limit_multiplier = Math.ceil(units_exec_fee / units_max_fee);
+
+		return feelevel;
+	}
+
+	async getRecommendedFeeLevel(sessionuuid, walletuuid, carduuid, currencyuuid, tx_fee) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		if (!carduuid)
+			return Promise.reject('card uuid is undefined');
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+		
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+		
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+		
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+	
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+		var card = await wallet.getCardFromUUID(carduuid);
+
+		if (!card)
+			return Promise.reject('could not find card ' + carduuid);
+
+		return this._getRecommendedFeeLevel(session, wallet, card, currency, tx_fee);
+	}
+
+
+
+	async computeTransactionFee(sessionuuid, walletuuid, carduuid, currencyuuid, tx_fee, feelevel = null) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		if (!carduuid)
+			return Promise.reject('card uuid is undefined');
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+		
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+		
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+		
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+	
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+		var card = await wallet.getCardFromUUID(carduuid);
+
+		if (!card)
+			return Promise.reject('could not find card ' + carduuid);
+
+		// get scheme transaction info
+		var ethnodeserver = await this._getCurrencyEthNodeServer(session, currency);
+		var tx_info = await this.getCurrencyTransactionContext(sessionuuid, currency.uuid, feelevel);
+
+		var gasLimit = tx_info.gasLimit;
+		var gasPrice = tx_info.gasPrice;
+		var avg_transaction_fee = tx_info.avg_transaction_fee;
+
+		var gas_unit = (ethnodeserver && ethnodeserver.gas_unit ? parseInt(ethnodeserver.gas_unit) : 21000);
+		var credit_cost_unit_ratio = (avg_transaction_fee * gasPrice) / gas_unit;
+
+		// execution cost
+		var units_exec_fee; 
+		var credits_exec_fee;
+		
+		if (tx_fee.estimated_cost_credits) {
+			credits_exec_fee = tx_fee.estimated_cost_credits;
+			units_exec_fee = await this._getUnitsFromCredits(session, currency, credits_exec_fee);
+		}
+		else {
+			units_exec_fee = (tx_fee.estimated_cost_units ? Math.ceil(tx_fee.estimated_cost_units / credit_cost_unit_ratio) : 1);
+			credits_exec_fee = await this._getTransactionCreditsAsync(session, currency, units_exec_fee);
+		}
+
+		// transferred value
+		var units_transferred;
+		var credits_transferred;
+
+		if (tx_fee.transferred_credits) {
+			credits_transferred = tx_fee.transferred_credits;
+			units_transferred = await this._getUnitsFromCredits(session, currency, credits_exec_fee);
+		}
+		else {
+			units_transferred = tx_fee.transferred_credit_units;
+			credits_transferred = await this._getTransactionCreditsAsync(session, currency, units_transferred);
+		}
+
+		// max price
+		var credits_max_fee = gasLimit * gasPrice;
+		var units_max_fee =  await this._getUnitsFromCredits(session, currency, credits_max_fee);
+
+		// fill tx_fee
+		tx_fee.tx_info = tx_info;
+
+		tx_fee.estimated_fee = {};
+
+		// estimated execution fee
+		tx_fee.estimated_fee.execution_units = units_exec_fee; 
+		tx_fee.estimated_fee.execution_credits = credits_exec_fee; 
+
+		// estimated transaction total
+		tx_fee.estimated_fee.total_credits = credits_exec_fee + credits_transferred; 
+		tx_fee.estimated_fee.total_units = await this._getUnitsFromCredits(session, currency, tx_fee.estimated_fee.total_credits); 
+
+		// max fee
+		tx_fee.estimated_fee.max_units = units_max_fee; 
+		tx_fee.estimated_fee.max_credits = credits_max_fee; 
+
+		// required balance
+		if (tx_fee.estimated_fee.max_credits > tx_fee.estimated_fee.total_credits) {
+			tx_fee.required_credits = tx_fee.estimated_fee.max_credits;
+		}
+		else {
+			if (tx_fee.estimated_fee.max_credits >= tx_fee.estimated_fee.execution_credits)
+				tx_fee.required_credits = tx_fee.estimated_fee.max_credits + credits_transferred; // because of "Insufficient funds for gas * price + value" web3 error
+			else {
+				tx_fee.required_credits = tx_fee.estimated_fee.total_credits; // won't go through because will reach gas limit
+				tx_fee.limit_overdraft = true;
+			}
+		}
+		
+		tx_fee.required_units =  await this._getUnitsFromCredits(session, currency, tx_fee.required_credits); 
+
+		return tx_fee;
+	}
+
+	async canCompleteTransaction(sessionuuid, walletuuid, carduuid, currencyuuid, tx_fee, feelevel = null) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		if (!carduuid)
+			return Promise.reject('card uuid is undefined');
+
+		// get card balance
+		const credits = await this.getCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid);
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+		
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+		
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+		
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+		var card = await wallet.getCardFromUUID(carduuid);
+
+		if (!card)
+			return Promise.reject('could not find card ' + carduuid);
+
+		// can the card send transactions
+		var cardaccount = card._getSessionAccountObject();
+
+		if (!cardaccount)
+			return false;
+
+		var privatekey = cardaccount.getPrivateKey();
+	
+		if (!privatekey)
+			return false;
+
+
+		// get transaction fee
+		var tx_fee = await this.computeTransactionFee(sessionuuid, walletuuid, carduuid, currencyuuid, tx_fee, feelevel);
+
+		// check estimated cost is not above max credits (corresponds to tx_fee.limit_overdraft == true)
+		if (tx_fee.estimated_fee.execution_credits > tx_fee.estimated_fee.max_credits) {
+			return false;
+		}
+
+		// check balance in units is above requirement
+		if (credits.transactionunits < tx_fee.required_units) {
+			return false;
+		}
+
+		// check
+		var tx_info = tx_fee.tx_info;
+		var scheme_units_threshold = tx_info.units_threshold;
+		var scheme_credits_threshold = tx_info.credits_threshold;
+
+		if (scheme_credits_threshold > credits.transactioncredits) {
+			if (tx_fee.threshold_enforced === true) {
+				tx_fee.required_units = scheme_credits_threshold;
+				return false;
+			}
+			else {
+				tx_fee.threshold_unmet = true;
+			}
+		}
+
+
+		return true;
+	}
+
+	async topUpCard(sessionuuid, walletuuid, carduuid, currencyuuid) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+		
+		if (!carduuid)
+			return Promise.reject('card uuid is undefined');
+
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+
+		var _apicontrollers = this._getClientAPI();
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+		
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+		var card = await wallet.getCardFromUUID(carduuid);
+		var address = card.getAddress();
+		
+		var ethnodeserver = await this._getCurrencyEthNodeServer(session, currency);
+		
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+
+		var topinfo = await new Promise((resolve, reject) => {
+			var restconnection = childsession.createRestConnection(ethnodeserver.rest_server_url, ethnodeserver.rest_server_api_path);
+
+			if (restconnection) {
+				if (restconnection._isReady()) {
+					var resource = "/faucet/topup/" + address;
+					
+					restconnection.rest_get(resource, (err, res) => {
+						var data = (res ? res['data'] : null);
+						if (data) {
+							resolve(data);
+						}
+						else {
+							reject('rest error calling ' + resource + ' : ' + err);
+						}
+						
+					});
+				}
+				else {
+					reject('rest connection can not issue a faucet request');
+				}
+			}
+			else {
+				reject('no rest server to receive faucet request');
+			}
+		});
+		
+		return topinfo;
+	}
+
+	async _createCurrencyFee(session, currency, feelevel) {
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+		var fee = _apicontrollers.createFee(feelevel);
+		
+		if (currency) {
+			fee.gaslimit = await this._getGasLimit(session, currency, feelevel);
+			fee.gasPrice = await this._getGasPrice(session, currency, feelevel);
+		}	
+		
+		return fee;
+	}
+
+	async _transferTransactionUnits(session, wallet, currency, fromaccount, toaddress, units, feelevel) {
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+
+		var transactioninfo = await this.getCurrencyTransactionContext(session.getSessionUUID(), currency.uuid, feelevel);
+
+		// create transaction object
+		var transaction = _apicontrollers.createEthereumTransaction(childsession, fromaccount);
+		
+		// parameters
+		var ethnodemodule = global.getModuleObject('ethnode');
+
+		var weiamount = ethnodemodule.getWeiFromEther(transactioninfo.avg_transaction_fee);
+		var ethamount = await this._createDecimalAmount(childsession, weiamount, 18);
+		ethamount.multiply(units);
+		var valuestring = await ethamount.toFixedString();
+
+		transaction.setToAddress(toaddress);
+		transaction.setValue(valuestring);
+
+		// fee
+		var fee = await this._createCurrencyFee(session, currency, feelevel);
+
+		transaction.setGas(fee.gaslimit);
+		transaction.setGasPrice(fee.gasPrice);
+
+		
+		const txhash = await _apicontrollers.sendEthereumTransaction(childsession, transaction)
+		.catch((err) => {
+			console.log('error in transferTransactionUnits: ' + err);
+		});
+
+		if (!txhash)
+			return Promise.reject('could not send ethereum transaction');
+
+		return txhash;		
+	}
+
+
+	async transferTransactionUnits(sessionuuid, walletuuid, cardfromuuid, currencyuuid, cardtouuid, units, feelevel = null) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+		
+		if (!cardfromuuid)
+			return Promise.reject('from card uuid is undefined');
+		
+		if (!cardtouuid)
+			return Promise.reject('to card uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+		
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+		
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+		
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+		
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+		var fromcard = await wallet.getCardFromUUID(cardfromuuid);
+		
+		if (!fromcard)
+			return Promise.reject('could not find card ' + cardfromuuid);
+
+		var tocard = await wallet.getCardFromUUID(cardtouuid);
+	
+		if (!tocard)
+			return Promise.reject('could not find card ' + cardtouuid);
+	
+	
+		var fromaccount = fromcard._getSessionAccountObject();
+
+		if (!fromaccount)
+			return Promise.reject('card has no private key ' + cardfromuuid);
+		
+		var toaddress = tocard.getAddress();
+
+		return this._transferTransactionUnits(session, wallet, currency, fromaccount, toaddress, units, feelevel);
+	}
+
+	async sendTransactionUnits(sessionuuid, walletuuid, cardfromuuid, currencyuuid, toaddress, units, feelevel = null) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+
+		if (!cardfromuuid)
+			return Promise.reject('card uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+		
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+		
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+		
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+		
+		var fromcard = await wallet.getCardFromUUID(cardfromuuid);
+	
+		if (!fromcard)
+			return Promise.reject('could not find card ' + cardfromuuid);
+			
+		var fromaccount = fromcard._getSessionAccountObject();
+
+		//return mvcclientwalletmodule.transferSchemeTransactionUnits(sessionuuid, walletuuid, schemeuuid, fromprivatekey, toaddress, units, feelevel);
+		return this._transferTransactionUnits(session, wallet, currency, fromaccount, toaddress, units, feelevel);
+	}
+
+	async canPayAmount(sessionuuid, walletuuid, carduuid, currencyuuid, amount, tx_fee, feelevel = null) {
 		if (!sessionuuid)
 			return Promise.reject('session uuid is undefined');
 		
@@ -1735,6 +2821,44 @@ var Module = class {
 	
 		if (!card)
 			return Promise.reject('could not find a card for currency ' + currencyuuid);
+
+
+		// can the card send transactions
+		var cardaccount = card._getSessionAccountObject();
+
+		if (!cardaccount)
+			return false;
+
+		var privatekey = cardaccount.getPrivateKey();
+	
+		if (!privatekey)
+			return false;
+
+
+		// first look if we have enough transaction units
+		if (currency.ops.cantxfree !== true) {
+			var _tx_fee = (tx_fee ? tx_fee : {transferred_credit_units: 0, estimated_cost_units: 3} );
+			let _feelevel;
+
+			if (feelevel)
+			_feelevel = feelevel;
+			else
+			_feelevel = await this.getRecommendedFeeLevel(sessionuuid, walletuuid, carduuid, _tx_fee);
+
+			var canspend = await this.canCompleteTransaction(sessionuuid, walletuuid, carduuid, _tx_fee, _feelevel).catch(err => {});
+
+			if (!canspend)
+				return false;
+		}
+
+		// then look if we enough currency amount
+		var currencyposition = await this.getCurrencyPosition(sessionuuid, walletuuid, currencyuuid, carduuid);
+		var tokenamountmax = await currencyposition.toInteger();
+
+		if (amount > tokenamountmax)
+			return false;
+
+		return true;
 	}
 
 
@@ -1820,7 +2944,7 @@ var Module = class {
 		var fee  = await _apicontrollers.createSchemeFee(scheme, feelevel);
 		var value = 0;
 
-		const credits = await mvcclientwalletmodule.getCreditBalance(sessionuuid, walletuuid, carduuid)
+		const credits = await this.getCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid)
 		.catch(err => {
 			console.log('error in payAmount: ' + err);
 		});
@@ -1925,15 +3049,16 @@ var Module = class {
 
 		var currenciesmodule = global.getModuleObject('currencies');
 
-		var currencyscheme = await currenciesmodule.getCurrencyScheme(session, currency);
-		var childsession = await this._getMonitoredSchemeSession(session, wallet, currencyscheme);
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
 
 
 		var tokenaddress = currency.address;
 
 		var erc20token = await _apicontrollers.importERC20Token(childsession, tokenaddress);
 
-		return erc20token.getChainTotalSupply();
+		var totalsupply = await erc20token.getChainTotalSupply();
+
+		return totalsupply;
 	}
 
 	async _getAddressFromTokenUUID(session, wallet, card, tokenuuid) {
@@ -2108,6 +3233,12 @@ var Module = class {
 		
 		if (!wallet)
 			return Promise.reject('could not find wallet ' + walletuuid);
+
+		// TEST
+		var scheme_config_list = await _apicontrollers.getSchemeConfigList(session, true);
+		// TEST
+			
+			
 
 		var cards = await this._getCurrencyCardList(session, wallet, currency).catch(err => {});
 
@@ -2478,7 +3609,7 @@ var Module = class {
 		// compute corresponding ethereum credits
 		var ethnodemodule = global.getModuleObject('ethnode');
 
-		var avg_transaction_fee = this._getAverageTransactionFee(scheme)
+		var avg_transaction_fee = await this._getAverageTransactionFee(session, currency)
 
 		var weiamount = ethnodemodule.getWeiFromEther(avg_transaction_fee);
 		var ethamount = await this._createDecimalAmount(session, weiamount, 18);
@@ -2562,7 +3693,7 @@ var Module = class {
 		// compute corresponding ethereum credits
 		var ethnodemodule = global.getModuleObject('ethnode');
 
-		var avg_transaction_fee = this._getAverageTransactionFee(scheme)
+		var avg_transaction_fee = await this._getAverageTransactionFee(session, currency);
 
 		var weiamount = ethnodemodule.getWeiFromEther(avg_transaction_fee);
 		var ethamount = await this._createDecimalAmount(session, weiamount, 18);
@@ -2602,7 +3733,9 @@ var Module = class {
 		ethtx.setGasPrice(fee.gasPrice);
 
 		// send swap request
-		return swapmodule.buyEthOnOutput(cardsession, scheme, token, tokenamountmax, weth, ethcredit, uniswap_v2, ethtx);
+		let tx_hash = await swapmodule.buyEthOnOutput(cardsession, scheme, token, tokenamountmax, weth, ethcredit, uniswap_v2, ethtx);
+
+		return tx_hash;
 	}
 
 	//
@@ -2799,15 +3932,6 @@ var Module = class {
 			return Promise.reject('could not find currency ' + currencyuuid);
 
 		var _options = (options ? options : {showdecimals: true, decimalsshown: 2});
-
-		// TEST
-/* 		var currencyscheme = await this._getCurrencyScheme(session, currency);
-		var tokenaddress = currency.address;
-
-		var token = await currencyscheme.getTokenObject(tokenaddress);
-		
-		var currencyamountstring = await this._formatTokenAmount(session, tokenamount, token, _options);
- */		// TEST: end
 
  		var tokenamountstring = await currencyamount.toString();
 		var currencyamountstring = await this._formatMonetaryAmount(session, tokenamountstring, currency.symbol, currency.decimals, _options);
