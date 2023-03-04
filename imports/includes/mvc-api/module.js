@@ -125,6 +125,49 @@ var Module = class {
 	// API
 	//
 
+	//
+	// Monitored Session functions
+	//
+
+	async _createDummyWalletSession(walletsession) {
+		var global = this.global;
+		var currenciesmodule = global.getModuleObject('currencies');
+		return currenciesmodule._createDummyWalletSession(walletsession);
+	}
+
+	async _setMonitoredEthereumNodeAccess(session, ethnodeserver) {
+		var global = this.global;
+		var ethnodecurrenciesmodule = global.getModuleObject('ethnode-currencies');
+		return ethnodecurrenciesmodule._setMonitoredEthereumNodeAccess(session, ethnodeserver);
+	}
+
+	async _getMonitoredCurrencySession(session, wallet, currency) {
+		var global = this.global;
+		var ethnodecurrenciesmodule = global.getModuleObject('ethnode-currencies');
+		return ethnodecurrenciesmodule._getMonitoredCurrencySession(session, wallet, currency);
+	}
+
+	async _getMonitoredCurrencyCardSession(session, wallet, card) {
+		var global = this.global;
+
+		var cardsession = card._getSession();
+		var currency = await this._findCardCurrency(session, wallet, card);
+
+		if (!currency)
+			return Promise.reject('not a currency card: ' + card.getCardUUID());
+
+		var ethnodecurrenciesmodule = global.getModuleObject('ethnode-currencies');
+		return ethnodecurrenciesmodule._getMonitoredCardSessionForCurrency(session, wallet, card, currency);
+	}
+
+	async _getMonitoredCardSessionForCurrency(session, wallet, card, currency) {
+		var global = this.global;
+		var cardsession = card._getSession();
+		var ethnodecurrenciesmodule = global.getModuleObject('ethnode-currencies');
+		return ethnodecurrenciesmodule._getMonitoredCardSessionForCurrency(session, wallet, card, currency);
+	}
+
+
 
 	//
 	// Ethnode
@@ -255,135 +298,6 @@ var Module = class {
 
 		return fetchsession;
 	}
-
-	//
-	// Card functions
-	//
-
-/* 	// TODO: replace by _apicontrollers.__makeWalletCard for version >= 0.20.18
-	async __makeWalletCard(session, wallet, scheme, authname, password, address) {
-		// to create a remote card on a remote wallet, with different schemes
-		var global = this.global;
-		var Card = global.getModuleClass('wallet', 'Card');;
-
-		var cardjson = {};
-		cardjson.authname = authname;
-		cardjson.address = address;
-		cardjson.password = password;
-
-		cardjson.uuid = session.guid();
-		cardjson.label = authname;
-
-		const card_new =  Card.readFromJson(wallet, scheme, cardjson);
-
-		if (card_new) {
-			await card_new.init();
-
-			if (card_new.isLocked()) {
-				await card_new.unlock();
-			}
-
-			return card_new;
-		}
-		else
-			throw new Error('could not create card');
-
-	}
-	
-	async _makeWalletCard(session, wallet, scheme, privatekey) {
-		// we make client or remote wallets, depending on the scheme
-		var global = this.global;
-		var _apicontrollers = this._getClientAPI();
-
-		if (!wallet)
-			return Promise.reject('wallet is not defined');
-
-		if (!scheme)
-			return Promise.reject('scheme is not defined');
-
-
-		var sessionaccount;
-
-		if (privatekey) {
-			// create a session account from private key
-			if (_apicontrollers.isValidPrivateKey(session, privatekey)) {
-				sessionaccount = await _apicontrollers.getSessionAccountFromPrivateKey(session, wallet, privatekey);
-			}
-	
-			if (!sessionaccount)
-				return Promise.reject('not a valid private key');
-	
-		}
-		else {
-			// we generate a key
-			var _privatekey = _apicontrollers.generatePrivateKey();
-			
-			sessionaccount = await _apicontrollers.getSessionAccountFromPrivateKey(session, wallet, _privatekey);
-	
-			if (!sessionaccount)
-				return Promise.reject('could not generate a private key');
-		}
-
-		var walletsession = wallet._getSession();
-		var walletuser = walletsession.getSessionUserObject();
-
-		if (!walletuser)
-			return Promise.reject('wallet needs to be unlocked');
-
-		
-		var address = sessionaccount.getAddress();
-		var authname = walletuser.getUserName();
-		var password = null;
-
-		// TODO: replace by _apicontrollers.makeWalletCard for version >= 0.20.18
-		//const card_new =  await _apicontrollers.makeWalletCard(session, wallet, scheme, authname, password, address)
-		const card_new =  await this.__makeWalletCard(session, wallet, scheme, authname, password, address)
-		.catch(err => {
-			console.log('error in _makeWalletCard: ' + err);
-		});
-
-		if (card_new) {
-			await card_new.init();
-
-			if (card_new.isLocked()) {
-				await card_new.unlock();
-			}
-
-			return card_new;
-		}
-		else
-			throw new Error('could not create card');
-	}
-
-
-	// TODO: replace by _apicontrollers.createWalletCard for version >= 0.20.18
-	async _createWalletCard(session, wallet, scheme, privatekey) {
-		var global = this.global;
-		var _apicontrollers = this._getClientAPI();
-
-		if (scheme.isRemote() === false)  {
-			return _apicontrollers.createWalletCard(session, wallet, scheme, privatekey);
-		}
-		else {
-			var wallettype = wallet.getWalletType();
-
-			switch(wallettype) {
-				case 0:
-					return Promise.reject('ERR_MISSING_CREDENTIALS');
-				case 1:
-					var walletschemeuuid = wallet.getSchemeUUID();
-
-					if (this._canWalletHandleScheme(wallet, scheme))
-						return this._makeWalletCard(session, wallet, scheme, privatekey);
-					else
-						return Promise.reject('ERR_MISSING_CREDENTIALS');
-				default:
-					return Promise.reject('wrong wallet type: ' + wallettype);
-			}
-	
-		}
-
-	} */
 
 
 	//
@@ -584,7 +498,7 @@ var Module = class {
 		if (!fromaccount)
 			return Promise.reject('card has no private key ' + cardfromuuid);
 		
-		var cardsession = await this._getMonitoredCardSession(session, wallet, fromcard);
+		var cardsession = await this._getMonitoredCardSessionForCurrency(session, wallet, fromcard, currency);
 		var from_card_scheme = fromcard.getScheme();
 
 		// transfer parameters
@@ -1077,6 +991,342 @@ var Module = class {
 		return arr;
 	}
 
+	async getCurrencyScheme(sessionuuid, walletuuid, currencyuuid) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+		
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+		
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+
+		var currenciesmodule = global.getModuleObject('currencies');
+
+		var scheme = await currenciesmodule.getCurrencyScheme(session, currency);
+
+		var mvcclienwallet = global.getModuleObject('mvc-client-wallet');
+
+		var schemeinfo = {uuid: scheme.getSchemeUUID()};
+
+		mvcclienwallet._fillSchemeInfoFromScheme(schemeinfo, scheme);
+
+		return schemeinfo;
+	}
+
+	async _getEthereumTransaction(session, txhash) {
+		var global = this.global;
+
+		var ethereumnodeaccessmodule = global.getModuleObject('ethereum-node-access');
+
+		const result = new Promise((resolve, reject) => { 
+			ethereumnodeaccessmodule.readEthereumTransactionObject(session, txhash, (err, res) => {
+				if (err) reject(err);
+				else {
+					var ethereumnodeaccessmodule = global.getModuleObject('ethereum-node-access');
+					var data = res.data;
+					try {
+						// can throw invalid UTF8 detected
+						res.data_decoded_utf8 = ethereumnodeaccessmodule.web3ToUTF8(session, data);
+					}
+					catch(e) {}
+				
+					resolve(res);
+				}
+			})
+			.then(res => {
+				// fixing missing callback call when data == null
+				// in EthereumNodeAccess.readEthereumTransactionObject
+				if (res)
+					return res;
+				else
+					throw new Error('no transaction found with hash ' + txhash);
+			})
+			.catch(err => {
+				reject(err);
+			});
+		});
+		
+		return result;
+	}
+
+	async _readTransaction(session, txhash) {
+		var global = this.global;
+		
+		var ethchainreadermodule = global.getModuleObject('ethchainreader');
+		
+		var chainreaderinterface = ethchainreadermodule.getChainReaderInterface(session);
+		
+		const result = new Promise((resolve, reject) => { 
+			chainreaderinterface.getTransaction(txhash,(err, res) => {
+				if (err) reject(err); 
+				else {
+					var ethereumnodeaccessmodule = global.getModuleObject('ethereum-node-access');
+					var input = res.input;
+					try {
+						res.input_decoded_utf8 = ethereumnodeaccessmodule.web3ToUTF8(session, input);
+					}
+					catch(e) {}
+				
+					resolve(res);
+				}
+			})			
+			.then(res => {
+				// fixing missing callback calls when data == null
+				// because of error read property of null in Transaction._createTransactionObject
+				if (res)
+					return res;
+				else
+					throw new Error('no transaction found with hash ' + txhash);
+			})
+			.catch(err => {
+				reject(err);
+			});
+		});
+		
+		return result;
+	}
+
+	async getCurrencyEthereumTransaction(sessionuuid, walletuuid, currencyuuid, txhash) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+
+		// TODO: uncomment for version >= 0.30.8
+		//var ethereumtransaction = await _apicontrollers.getEthereumTransaction(childsession, txhash);
+		var ethereumtransaction = await this._getEthereumTransaction(childsession, txhash);
+		
+		ethereumtransaction._ethtx = await this._readTransaction(childsession, txhash);
+		//ethereumtransaction._ethtx = await apicontrollers.readTransaction(childsession, txhash);
+
+		return ethereumtransaction;
+	}
+
+	async getCurrencyEthereumTransactionReceipt(sessionuuid, walletuuid, currencyuuid, txhash) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+
+		var ethereumtransactionreceipt = await _apicontrollers.getEthereumTransactionReceipt(childsession, txhash);
+
+		return ethereumtransactionreceipt;
+	}
+
+	async getCurrencyERC20TokenInfo(sessionuuid, walletuuid, currencyuuid, tokenaddress) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!walletuuid)
+			return Promise.reject('wallet uuid is undefined');
+
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+
+		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+
+		// get erc20 token contract
+		var erc20token_contract = await _apicontrollers.importERC20Token(childsession, tokenaddress);
+
+		var token = {address: tokenaddress};
+
+		token.name = await erc20token_contract.getChainName();
+		token.symbol = await erc20token_contract.getChainSymbol();
+		token.decimals = await erc20token_contract.getChainDecimals();
+
+		return token;
+	}
+
+	async getCurrencyTransactionInfo(sessionuuid, walletuuid, currencyuuid, txhash) {
+		var tx_info = {hash: txhash};
+
+		if (!sessionuuid)
+			return tx_info;
+
+		if (!walletuuid)
+			return tx_info;
+
+		if (!currencyuuid)
+			return tx_info;
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+	
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+	
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
+
+		if (!wallet)
+			return Promise.reject('could not find wallet ' + walletuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+	
+	
+		try {
+			let bTokenTx = false;
+
+			// TODO: find if this is a token transaction
+
+			// get transaction for more specific info
+			let transaction = await this.getCurrencyEthereumTransaction(sessionuuid, walletuuid, currencyuuid, txhash)
+			.catch(err => {
+				console.log('could not retrieve transaction in getCurrencyTransactionInfo: ' + err);
+			});
+			let tx = (transaction ? transaction._ethtx : null);
+
+			if (tx) {
+				tx_info.time = tx.time;
+				tx_info.status_int = 5; // pending
+
+				// get transaction receipt
+				let tx_receipt = await this.getCurrencyEthereumTransactionReceipt(sessionuuid, walletuuid, currencyuuid, txhash).catch(err => {});
+
+				if (tx_receipt) {
+					tx_info.blockNumber = tx_receipt.blockNumber;
+					tx_info.from_address = tx_receipt.from;
+					tx_info.status = tx_receipt.status;
+					tx_info.status_int = (tx_receipt.status ? 10 : -10); // 1 success, -1 fail
+		
+					if (bTokenTx) {
+						// erc20 format
+						tx_info.tokenaddress = tx_receipt.to
+						tx_info.amount = (tx_receipt.logs && tx_receipt.logs[0] ? parseInt(tx_receipt.logs[0].data) : null);
+						tx_info.to_address = (tx_receipt.logs && tx_receipt.logs[0] && tx_receipt.logs[0].topics && tx_receipt.logs[0].topics[2] ? '0x' + tx_receipt.logs[0].topics[2].substring(26) : null);
+					}
+				}
+			}
+			else {
+				tx_info.status_int = -5; // not found
+			}
+		}
+		catch(e) {
+			console.log('exception in getCurrencyTransactionInfo: ' + e);
+		}
+
+		return tx_info;
+	}
+
+	async getCurrencyTransactionUnitsThreshold(sessionuuid, walletuuid, currencyuuid) {
+		if (!sessionuuid)
+			return Promise.reject('session uuid is undefined');
+		
+		if (!currencyuuid)
+			return Promise.reject('currency uuid is undefined');
+		
+		var _apicontrollers = this._getClientAPI();
+		var session = await _apicontrollers.getSessionObject(sessionuuid);
+
+		if (!session)
+			return Promise.reject('could not find session ' + sessionuuid);
+
+		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
+
+		if (!currency)
+			return Promise.reject('could not find currency ' + currencyuuid);
+
+		
+		var threshold = await this._getTransactionUnitsThreshold(session, currency);
+		
+		return threshold;
+	}
+
+	//
+	// Currency Card functions
+	//
+
 	async getTokenCardList(sessionuuid, walletuuid, web3providerurl, tokenaddress) {
 		if (!web3providerurl || !tokenaddress)
 		return [];
@@ -1189,46 +1439,6 @@ var Module = class {
 		return card;
 	}
 
-	async getCurrencyScheme(sessionuuid, walletuuid, currencyuuid) {
-		if (!sessionuuid)
-			return Promise.reject('session uuid is undefined');
-		
-		if (!walletuuid)
-			return Promise.reject('wallet uuid is undefined');
-		
-		if (!currencyuuid)
-			return Promise.reject('currency uuid is undefined');
-		
-		var global = this.global;
-		var _apicontrollers = this._getClientAPI();
-	
-		var session = await _apicontrollers.getSessionObject(sessionuuid);
-	
-		if (!session)
-			return Promise.reject('could not find session ' + sessionuuid);
-		
-		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
-
-		if (!wallet)
-			return Promise.reject('could not find wallet ' + walletuuid);
-
-		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
-		
-		if (!currency)
-			return Promise.reject('could not find currency ' + currencyuuid);
-
-		var currenciesmodule = global.getModuleObject('currencies');
-
-		var scheme = await currenciesmodule.getCurrencyScheme(session, currency);
-
-		var mvcclienwallet = global.getModuleObject('mvc-client-wallet');
-
-		var schemeinfo = {uuid: scheme.getSchemeUUID()};
-
-		mvcclienwallet._fillSchemeInfoFromScheme(schemeinfo, scheme);
-
-		return schemeinfo;
-	}
 
 	async _findCardCurrency(session, wallet, card) {
 		let xtradata = card.getXtraData('myquote');
@@ -1769,6 +1979,12 @@ var Module = class {
 	}
 
 	async getCurrencyPosition(sessionuuid, walletuuid, currencyuuid, carduuid) {
+		console.log('OBSOLETE: Module.getCurrencyPosition should no longer be used, should use Module.getCurrencyCardPosition!')
+		return this.getCurrencyCardPosition(sessionuuid, walletuuid, currencyuuid, carduuid);
+	}
+
+
+	async getCurrencyCardPosition(sessionuuid, walletuuid, currencyuuid, carduuid) {
 		if (!sessionuuid)
 			return Promise.reject('session uuid is undefined');
 		
@@ -1797,6 +2013,22 @@ var Module = class {
 		if (!currency)
 			return Promise.reject('could not find currency ' + currencyuuid);
 
+		var card;
+		if (!carduuid) {
+			card = await this._getCurrencyCard(session, wallet, currency).catch(err => {});
+
+			if (!card)
+			return Promise.reject('could not find card for currency ' + currencyuuid);
+		}
+		else {
+			card = await wallet.getCardFromUUID(carduuid);
+
+			if (!card)
+				return Promise.reject('could not find card for ' + carduuid);
+		}
+
+
+
 		var tokenaddress = currency.address;
 
 		// using token account to get position
@@ -1817,13 +2049,15 @@ var Module = class {
 		else {
 			var mvcclientwalletmodule = global.getModuleObject('mvc-client-wallet');
 			cardinfo = await mvcclientwalletmodule. getCardInfo(sessionuuid, walletuuid, carduuid);
+
+			// TODO: check this card is associated with the currency or send Promise.reject
 		}
 		
 		
 		var cardaddress = cardinfo.address;
 		
 		// get a childsession on currency scheme
-		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+		var childsession = await this._getMonitoredCardSessionForCurrency(session, wallet, card, currency);
 		var position;
 		var web3providerurl = await this._getCurrencyWeb3ProviderUrl(childsession, currency);
 
@@ -1838,6 +2072,7 @@ var Module = class {
 	}
 
 	async getCurrencyCardCredits(sessionuuid, walletuuid, currencyuuid) {
+		console.log('OBSOLETE: Module.getCurrencyCardCredits should no longer be used, should use Module.getCurrencyCardCreditBalance!')
 		if (!sessionuuid)
 			return Promise.reject('session uuid is undefined');
 		
@@ -1872,329 +2107,20 @@ var Module = class {
 		var carduuid = card.getCardUUID();
 		var schemeuuid = card.getSchemeUUID();
 
-		var credits = await this.getCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid);
+		var credits = await this.getCurrencyCardCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid);
 
 		credits.threshold = await this.getCurrencyTransactionUnitsThreshold(sessionuuid, walletuuid, currencyuuid);
 
 		return credits;
 	}
 
-	async _getEthereumTransaction(session, txhash) {
-		var global = this.global;
-
-		var ethereumnodeaccessmodule = global.getModuleObject('ethereum-node-access');
-
-		const result = new Promise((resolve, reject) => { 
-			ethereumnodeaccessmodule.readEthereumTransactionObject(session, txhash, (err, res) => {
-				if (err) reject(err);
-				else {
-					var ethereumnodeaccessmodule = global.getModuleObject('ethereum-node-access');
-					var data = res.data;
-					try {
-						// can throw invalid UTF8 detected
-						res.data_decoded_utf8 = ethereumnodeaccessmodule.web3ToUTF8(session, data);
-					}
-					catch(e) {}
-				
-					resolve(res);
-				}
-			})
-			.then(res => {
-				// fixing missing callback call when data == null
-				// in EthereumNodeAccess.readEthereumTransactionObject
-				if (res)
-					return res;
-				else
-					throw new Error('no transaction found with hash ' + txhash);
-			})
-			.catch(err => {
-				reject(err);
-			});
-		});
-		
-		return result;
-	}
-
-	async _readTransaction(session, txhash) {
-		var global = this.global;
-		
-		var ethchainreadermodule = global.getModuleObject('ethchainreader');
-		
-		var chainreaderinterface = ethchainreadermodule.getChainReaderInterface(session);
-		
-		const result = new Promise((resolve, reject) => { 
-			chainreaderinterface.getTransaction(txhash,(err, res) => {
-				if (err) reject(err); 
-				else {
-					var ethereumnodeaccessmodule = global.getModuleObject('ethereum-node-access');
-					var input = res.input;
-					try {
-						res.input_decoded_utf8 = ethereumnodeaccessmodule.web3ToUTF8(session, input);
-					}
-					catch(e) {}
-				
-					resolve(res);
-				}
-			})			
-			.then(res => {
-				// fixing missing callback calls when data == null
-				// because of error read property of null in Transaction._createTransactionObject
-				if (res)
-					return res;
-				else
-					throw new Error('no transaction found with hash ' + txhash);
-			})
-			.catch(err => {
-				reject(err);
-			});
-		});
-		
-		return result;
-	}
-
-	async getCurrencyEthereumTransaction(sessionuuid, walletuuid, currencyuuid, txhash) {
-		if (!sessionuuid)
-			return Promise.reject('session uuid is undefined');
-		
-		if (!walletuuid)
-			return Promise.reject('wallet uuid is undefined');
-
-		if (!currencyuuid)
-			return Promise.reject('currency uuid is undefined');
-
-		var global = this.global;
-		var _apicontrollers = this._getClientAPI();
-	
-		var session = await _apicontrollers.getSessionObject(sessionuuid);
-	
-		if (!session)
-			return Promise.reject('could not find session ' + sessionuuid);
-
-		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
-
-		if (!wallet)
-			return Promise.reject('could not find wallet ' + walletuuid);
-
-		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
-
-		if (!currency)
-			return Promise.reject('could not find currency ' + currencyuuid);
-
-		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
-
-		// TODO: uncomment for version >= 0.30.8
-		//var ethereumtransaction = await _apicontrollers.getEthereumTransaction(childsession, txhash);
-		var ethereumtransaction = await this._getEthereumTransaction(childsession, txhash);
-		
-		ethereumtransaction._ethtx = await this._readTransaction(childsession, txhash);
-		//ethereumtransaction._ethtx = await apicontrollers.readTransaction(childsession, txhash);
-
-		return ethereumtransaction;
-	}
-
-	async getCurrencyEthereumTransactionReceipt(sessionuuid, walletuuid, currencyuuid, txhash) {
-		if (!sessionuuid)
-			return Promise.reject('session uuid is undefined');
-		
-		if (!walletuuid)
-			return Promise.reject('wallet uuid is undefined');
-
-		if (!currencyuuid)
-			return Promise.reject('currency uuid is undefined');
-
-		var global = this.global;
-		var _apicontrollers = this._getClientAPI();
-	
-		var session = await _apicontrollers.getSessionObject(sessionuuid);
-	
-		if (!session)
-			return Promise.reject('could not find session ' + sessionuuid);
-
-		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
-
-		if (!wallet)
-			return Promise.reject('could not find wallet ' + walletuuid);
-
-		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
-
-		if (!currency)
-			return Promise.reject('could not find currency ' + currencyuuid);
-	
-
-		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
-
-		var ethereumtransactionreceipt = await _apicontrollers.getEthereumTransactionReceipt(childsession, txhash);
-
-		return ethereumtransactionreceipt;
-	}
-
-	async getCurrencyERC20TokenInfo(sessionuuid, walletuuid, currencyuuid, tokenaddress) {
-		if (!sessionuuid)
-			return Promise.reject('session uuid is undefined');
-		
-		if (!walletuuid)
-			return Promise.reject('wallet uuid is undefined');
-
-		if (!currencyuuid)
-			return Promise.reject('currency uuid is undefined');
-
-		var global = this.global;
-		var _apicontrollers = this._getClientAPI();
-	
-		var session = await _apicontrollers.getSessionObject(sessionuuid);
-	
-		if (!session)
-			return Promise.reject('could not find session ' + sessionuuid);
-
-		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
-
-		if (!wallet)
-			return Promise.reject('could not find wallet ' + walletuuid);
-
-		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
-
-		if (!currency)
-			return Promise.reject('could not find currency ' + currencyuuid);
-	
-
-		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
-
-		// get erc20 token contract
-		var erc20token_contract = await _apicontrollers.importERC20Token(childsession, tokenaddress);
-
-		var token = {address: tokenaddress};
-
-		token.name = await erc20token_contract.getChainName();
-		token.symbol = await erc20token_contract.getChainSymbol();
-		token.decimals = await erc20token_contract.getChainDecimals();
-
-		return token;
-	}
-
-	async getCurrencyTransactionInfo(sessionuuid, walletuuid, currencyuuid, txhash) {
-		var tx_info = {hash: txhash};
-
-		if (!sessionuuid)
-			return tx_info;
-
-		if (!walletuuid)
-			return tx_info;
-
-		if (!currencyuuid)
-			return tx_info;
-
-		var global = this.global;
-		var _apicontrollers = this._getClientAPI();
-	
-		var session = await _apicontrollers.getSessionObject(sessionuuid);
-	
-		if (!session)
-			return Promise.reject('could not find session ' + sessionuuid);
-
-		var wallet = await _apicontrollers.getWalletFromUUID(session, walletuuid);
-
-		if (!wallet)
-			return Promise.reject('could not find wallet ' + walletuuid);
-
-		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
-
-		if (!currency)
-			return Promise.reject('could not find currency ' + currencyuuid);
-	
-	
-		try {
-			let bTokenTx = false;
-
-			// TODO: find if this is a token transaction
-
-			// get transaction for more specific info
-			let transaction = await this.getCurrencyEthereumTransaction(sessionuuid, walletuuid, currencyuuid, txhash)
-			.catch(err => {
-				console.log('could not retrieve transaction in getCurrencyTransactionInfo: ' + err);
-			});
-			let tx = (transaction ? transaction._ethtx : null);
-
-			if (tx) {
-				tx_info.time = tx.time;
-				tx_info.status_int = 5; // pending
-
-				// get transaction receipt
-				let tx_receipt = await this.getCurrencyEthereumTransactionReceipt(sessionuuid, walletuuid, currencyuuid, txhash).catch(err => {});
-
-				if (tx_receipt) {
-					tx_info.blockNumber = tx_receipt.blockNumber;
-					tx_info.from_address = tx_receipt.from;
-					tx_info.status = tx_receipt.status;
-					tx_info.status_int = (tx_receipt.status ? 10 : -10); // 1 success, -1 fail
-		
-					if (bTokenTx) {
-						// erc20 format
-						tx_info.tokenaddress = tx_receipt.to
-						tx_info.amount = (tx_receipt.logs && tx_receipt.logs[0] ? parseInt(tx_receipt.logs[0].data) : null);
-						tx_info.to_address = (tx_receipt.logs && tx_receipt.logs[0] && tx_receipt.logs[0].topics && tx_receipt.logs[0].topics[2] ? '0x' + tx_receipt.logs[0].topics[2].substring(26) : null);
-					}
-				}
-			}
-			else {
-				tx_info.status_int = -5; // not found
-			}
-		}
-		catch(e) {
-			console.log('exception in getCurrencyTransactionInfo: ' + e);
-		}
-
-		return tx_info;
-	}
-
-	async _createDummyWalletSession(walletsession) {
-		var global = this.global;
-		var currenciesmodule = global.getModuleObject('currencies');
-		return currenciesmodule._createDummyWalletSession(walletsession);
-	}
-
-	async _setMonitoredEthereumNodeAccess(session, ethnodeserver) {
-		var global = this.global;
-		var ethnodecurrenciesmodule = global.getModuleObject('ethnode-currencies');
-		return ethnodecurrenciesmodule._setMonitoredEthereumNodeAccess(session, ethnodeserver);
-	}
-
-	async _getMonitoredCurrencySession(session, wallet, currency) {
-		var global = this.global;
-		var ethnodecurrenciesmodule = global.getModuleObject('ethnode-currencies');
-		return ethnodecurrenciesmodule._getMonitoredCurrencySession(session, wallet, currency);
-	}
-
-	async _getMonitoredCardSession(session, wallet, card) {
-		var currency = await this._findCardCurrency(session, wallet, card);
-	
-		return this._getMonitoredCurrencySession(session, wallet, currency);
-	}
-
-	async getCurrencyTransactionUnitsThreshold(sessionuuid, walletuuid, currencyuuid) {
-		if (!sessionuuid)
-			return Promise.reject('session uuid is undefined');
-		
-		if (!currencyuuid)
-			return Promise.reject('currency uuid is undefined');
-		
-		var _apicontrollers = this._getClientAPI();
-		var session = await _apicontrollers.getSessionObject(sessionuuid);
-
-		if (!session)
-			return Promise.reject('could not find session ' + sessionuuid);
-
-		var currency = await this.getCurrencyFromUUID(sessionuuid, currencyuuid);
-
-		if (!currency)
-			return Promise.reject('could not find currency ' + currencyuuid);
-
-		
-		var threshold = await this._getTransactionUnitsThreshold(session, currency);
-		
-		return threshold;
-	}
-
 	async getCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid) {
+		console.log('OBSOLETE: Module.getCreditBalance should no longer be used, should use Module.getCurrencyCardCreditBalance!')
+		return this.getCurrencyCardCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid)
+	}
+
+
+	async getCurrencyCardCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid) {
 		
 		if (!sessionuuid)
 			return Promise.reject('session uuid is undefined');
@@ -2223,7 +2149,7 @@ var Module = class {
 		if (!currency)
 			return Promise.reject('could not find currency ' + currencyuuid);
 		
-		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+		var childsession = await this._getMonitoredCardSessionForCurrency(session, wallet, card, currency);
 
 		var ethereumnodeaccess;
 		
@@ -2252,6 +2178,7 @@ var Module = class {
 
 		return credits;
 	}
+
 
 
 	async getCurrencyTransactionContext(sessionuuid, currencyuuid, feelevel = null) {
@@ -2503,7 +2430,7 @@ var Module = class {
 			return Promise.reject('card uuid is undefined');
 
 		// get card balance
-		const credits = await this.getCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid);
+		const credits = await this.getCurrencyCardCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid);
 
 		var global = this.global;
 		var _apicontrollers = this._getClientAPI();
@@ -2600,7 +2527,7 @@ var Module = class {
 		
 		var ethnodeserver = await this._getCurrencyEthNodeServer(session, currency);
 		
-		var childsession = await this._getMonitoredCurrencySession(session, wallet, currency);
+		var childsession = await this._getMonitoredCardSessionForCurrency(session, wallet, card, currency);
 
 		var topinfo = await new Promise((resolve, reject) => {
 			var restconnection = childsession.createRestConnection(ethnodeserver.rest_server_url, ethnodeserver.rest_server_api_path);
@@ -2685,6 +2612,48 @@ var Module = class {
 		return txhash;		
 	}
 
+	async _transferCardTransactionUnitsForCurrency(session, wallet, currency, card, toaddress, units, feelevel) {
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+
+		var childsession = await this._getMonitoredCardSessionForCurrency(session, wallet, card, currency);
+
+		var transactioninfo = await this.getCurrencyTransactionContext(session.getSessionUUID(), currency.uuid, feelevel);
+
+		// create transaction object
+		var fromaccount = card._getSessionAccountObject();
+
+		var transaction = _apicontrollers.createEthereumTransaction(childsession, fromaccount);
+		
+		// parameters
+		var ethnodemodule = global.getModuleObject('ethnode');
+
+		var weiamount = ethnodemodule.getWeiFromEther(transactioninfo.avg_transaction_fee);
+		var ethamount = await this._createDecimalAmount(childsession, weiamount, 18);
+		ethamount.multiply(units);
+		var valuestring = await ethamount.toFixedString();
+
+		transaction.setToAddress(toaddress);
+		transaction.setValue(valuestring);
+
+		// fee
+		var fee = await this._createCurrencyFee(session, currency, feelevel);
+
+		transaction.setGas(fee.gaslimit);
+		transaction.setGasPrice(fee.gasPrice);
+
+		
+		const txhash = await _apicontrollers.sendEthereumTransaction(childsession, transaction)
+		.catch((err) => {
+			console.log('error in transferTransactionUnits: ' + err);
+		});
+
+		if (!txhash)
+			return Promise.reject('could not send ethereum transaction');
+
+		return txhash;
+	}
+
 
 	async transferTransactionUnits(sessionuuid, walletuuid, cardfromuuid, currencyuuid, cardtouuid, units, feelevel = null) {
 		if (!sessionuuid)
@@ -2739,7 +2708,8 @@ var Module = class {
 		
 		var toaddress = tocard.getAddress();
 
-		return this._transferTransactionUnits(session, wallet, currency, fromaccount, toaddress, units, feelevel);
+		//return this._transferTransactionUnits(session, wallet, currency, fromaccount, toaddress, units, feelevel);
+		return this._transferCardTransactionUnitsForCurrency(session, wallet, currency, fromcard, toaddress, units, feelevel);
 	}
 
 	async sendTransactionUnits(sessionuuid, walletuuid, cardfromuuid, currencyuuid, toaddress, units, feelevel = null) {
@@ -2780,8 +2750,12 @@ var Module = class {
 			
 		var fromaccount = fromcard._getSessionAccountObject();
 
+		if (!fromaccount)
+			return Promise.reject('card has no private key ' + cardfromuuid);
+		
 		//return mvcclientwalletmodule.transferSchemeTransactionUnits(sessionuuid, walletuuid, schemeuuid, fromprivatekey, toaddress, units, feelevel);
-		return this._transferTransactionUnits(session, wallet, currency, fromaccount, toaddress, units, feelevel);
+		//return this._transferTransactionUnits(session, wallet, currency, fromaccount, toaddress, units, feelevel);
+		return this._transferCardTransactionUnitsForCurrency(session, wallet, currency, fromcard, toaddress, units, feelevel);
 	}
 
 	async canPayAmount(sessionuuid, walletuuid, carduuid, currencyuuid, amount, tx_fee, feelevel = null) {
@@ -2935,7 +2909,7 @@ var Module = class {
  */
 
 		// using direct call to ERC20 to speed up call
-		var cardsession = await this._getMonitoredCardSession(session, wallet, card);
+		var cardsession = await this._getMonitoredCardSessionForCurrency(session, wallet, card, currency);
 		var fromaccount = card._getSessionAccountObject();
 
 		var scheme = await this._getCurrencyScheme(session, currency);
@@ -2944,7 +2918,7 @@ var Module = class {
 		var fee  = await _apicontrollers.createSchemeFee(scheme, feelevel);
 		var value = 0;
 
-		const credits = await this.getCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid)
+		const credits = await this.getCurrencyCardCreditBalance(sessionuuid, walletuuid, carduuid, currencyuuid)
 		.catch(err => {
 			console.log('error in payAmount: ' + err);
 		});
@@ -3171,7 +3145,7 @@ var Module = class {
 		if (!card)
 			return Promise.reject('could not find card ' + carduuid);
 
-		var cardsession = await this._getMonitoredCardSession(session, wallet, card);
+		var cardsession = await this._getMonitoredCurrencyCardSession(session, wallet, card);
 
 
 		// get erc20 token contract
@@ -3687,7 +3661,7 @@ var Module = class {
 
 		var scheme = await this._getCurrencyScheme(session, currency);
 
-		var cardsession = await this._getMonitoredCardSession(session, wallet, card);
+		var cardsession = await this._getMonitoredCardSessionForCurrency(session, wallet, card, currency);
 		var fromaccount = card._getSessionAccountObject();
 
 		// compute corresponding ethereum credits
@@ -3741,6 +3715,7 @@ var Module = class {
 	//
 	// utils
 	//
+	
 	async _unformatAmount(session, amountstring, decimals) {
 		if (amountstring === undefined)
 			return;

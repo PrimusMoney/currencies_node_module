@@ -101,6 +101,10 @@ var Module = class {
 	//
 
 
+	//
+	// Wallet functions
+	//
+
 	_canWalletHandleScheme(wallet, scheme) {
 		if (!wallet || !scheme)
 			return false;
@@ -119,24 +123,24 @@ var Module = class {
 		}
 	}
 
-	async _createDummyWalletSession(walletsession) {
+	async _createDummyProxySession(session) {
 		// we create a dummy session (not registered in session_array) and
 		// we set it to the correct instance before calling _getEthereumTransaction and other methods
 		var global = this.global;
 		const Session = global.getModuleClass('common', 'Session')
-		var fetchsession = new Session(global);
-		fetchsession.setSessionUUID(walletsession.getSessionUUID()); // serving as placeholder for authkey
-		fetchsession.DUMMY_SESSION_UUID = walletsession.guid();
-		fetchsession.DUMMY_SESSION_WALLET = walletsession;
+		var dummysession = new Session(global);
+		dummysession.setSessionUUID(session.getSessionUUID()); // serving as placeholder for authkey
+		dummysession.DUMMY_SESSION_UUID = session.guid();
+		dummysession.DUMMY_SESSION_ORG = session;
 
-		// point to walletsession properties (avoid storage to make this session unharmful)
-		fetchsession.authkey = walletsession.authkey;
-		fetchsession.authkey_server_access_instance = walletsession.authkey_server_access_instance;
-		fetchsession.cryptokeymap = walletsession.cryptokeymap;
-		fetchsession.user = walletsession.user;
-		fetchsession.xtraconfig = walletsession.xtraconfig;
+		// point to session properties (avoid storage to make this session unharmful)
+		dummysession.authkey = session.authkey;
+		dummysession.authkey_server_access_instance = session.authkey_server_access_instance;
+		dummysession.cryptokeymap = session.cryptokeymap;
+		dummysession.user = session.user;
+		dummysession.xtraconfig = session.xtraconfig;
 
-		return fetchsession;
+		return dummysession;
 	}
 	
 	//

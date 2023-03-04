@@ -4,6 +4,7 @@ var Module = class {
 	
 	constructor() {
 		this.name = 'ethnode-currencies';
+		this.current_version = "standard";
 		
 		this.global = null; // put by global on registration
 		this.isready = false;
@@ -328,7 +329,7 @@ var Module = class {
 	async _createDummyWalletSession(walletsession) {
 		var global = this.global;
 		var currenciesmodule = global.getModuleObject('currencies');
-		var fetchsession = await currenciesmodule._createDummyWalletSession(walletsession);
+		var fetchsession = await currenciesmodule._createDummyProxySession(walletsession);
 
 		// specific to ethnode
 		var ethnodemodule = global.getModuleObject('ethnode');
@@ -402,8 +403,6 @@ var Module = class {
 		return childsession;
 	}
 
-
-
 	async _getMonitoredCurrencySession(session, wallet, currency) {
 		var fetchsession;
 
@@ -431,6 +430,7 @@ var Module = class {
 						// and relies on session.ethereum_node_access_instance in getEthereumNodeAccessInstance(session)
 						fetchsession = await this._createDummyWalletSession(walletsession);
 						fetchsession.DUMMY_SESSION_CURRENCY = currency;
+						fetchsession.DUMMY_SESSION_WALLET = wallet;
 						currencysessionmap[currency.uuid] = fetchsession;
 
 						let ethnodeserver = await this.getCurrencyEthNodeServer(session, currency);
@@ -457,6 +457,176 @@ var Module = class {
 
 		return fetchsession;
 	}
+
+	_canCardHandleScheme(card, scheme) {
+		if (!card || !scheme)
+			return false;
+
+		if (scheme.isRemote()) {
+			var cardschemeuuid = card.getSchemeUUID();
+
+			// TODO: we could look if authserver are the same
+			if (cardschemeuuid && (cardschemeuuid === scheme.getSchemeUUID()))
+				return true;
+			else
+				return false;
+		}
+		else {
+			return true;
+		}
+	}
+
+	async _createDummyCardSession(cardsession) {
+		var global = this.global;
+		var currenciesmodule = global.getModuleObject('currencies');
+		var dummysession = await currenciesmodule._createDummyProxySession(cardsession);
+
+		// specific to ethnode
+		var ethnodemodule = global.getModuleObject('ethnode');
+		var erc20module = global.getModuleObject('erc20');
+		dummysession.contracts = ethnodemodule.getContractsObject(dummysession);
+		// register TokenERC20 in the contracts object
+		dummysession.contracts.registerContractClass('TokenERC20', erc20module.ERC20Token);
+
+		dummysession.web3providermap = cardsession.web3providermap;
+
+		return dummysession;		
+	}
+
+	_getCardCurrencySessionMap(session, card, currency) {
+		var currencysessionmap
+		
+		if (card) {
+			// we specify different currency maps by carduuid
+			// in case different cards share the same session (e.g. wallet's session)
+			// and so to avoid collisions
+			let cardsessionmap = session.getSessionVariable('cardsessionmap');
+
+			if (!cardsessionmap) {
+				cardsessionmap = Object.create(null);
+				session.setSessionVariable('cardsessionmap', cardsessionmap);
+			}
+
+			let carduuid = card.getCardUUID();
+			let cardcurrencysessionmap = cardsessionmap[carduuid];
+
+			if (!cardcurrencysessionmap) {
+				cardcurrencysessionmap = Object.create(null);
+				cardsessionmap[carduuid] = cardcurrencysessionmap;
+			}
+
+			currencysessionmap = cardcurrencysessionmap;
+
+		}
+		else {
+			currencysessionmap = this._getCurrencySessionMap(session, currency);
+		}
+
+		return currencysessionmap;
+	}
+
+	async _getChildSessionOnCardCurrency(parentsession, card, currency) {
+		if (!card) {
+			return this._getChildSessionOnCurrency(parentsession, currency);
+		}
+
+
+		var global = this.global;
+		var _apicontrollers = this._getClientAPI();
+
+		if (!parentsession)
+			return Promise.reject('could not create child of null session');
+
+		var currencysessionmap = this._getCardCurrencySessionMap(parentsession, card, currency);
+		
+		// we could look if a pre-existing session with corresponding web3providerurl could be re-used
+		var currencyuuid = currency.uuid;
+
+		if (currencysessionmap[currencyuuid])
+			return currencysessionmap[currencyuuid];
+
+		// else we create one and set it
+		var childsession = await _apicontrollers.createChildSessionObject(parentsession);
+		childsession.MYCURRENCY = this.current_version;
+
+		if (!parentsession.MYCURRENCY_ROOT)
+			parentsession.MYCURRENCY_ROOT = (this.current_version ? this.current_version : 'xxx');
+
+		var scheme = await this._getCurrencyScheme(parentsession, currency);
+		
+		if (scheme.isRemote())
+			childsession.overload_ethereum_node_access = true;
+		else
+			childsession.overload_ethereum_node_access = false;
+
+		// set ethnode context
+		let ethnodeserver = await this.getCurrencyEthNodeServer(parentsession, currency);
+		await this._setMonitoredEthereumNodeAccess(childsession, ethnodeserver);
+
+		// call setSessionNetworkConfig that will invoke setSessionNetworkConfig_hook
+		var networkconfig = scheme.getNetworkConfig();
+
+		await _apicontrollers.setSessionNetworkConfig(childsession, networkconfig);
+
+		currencysessionmap[currencyuuid] = childsession;
+
+		return childsession;
+	}
+
+	async _getMonitoredCardSessionForCurrency(session, wallet, card, currency) {
+		var fetchsession;
+
+		var global = this.global;
+
+		var scheme = await this._getCurrencyScheme(session, currency);
+
+		if (!scheme)
+			return Promise.reject('scheme is not defined');
+
+		if (scheme.isRemote()) {
+			if (card) {
+	
+				if (this._canCardHandleScheme(card, scheme)) {
+					// use wallet session
+					let cardsession = card._getSession();
+					var currencysessionmap = this._getCardCurrencySessionMap(cardsession, card, currency);
+
+					fetchsession = currencysessionmap[currency.uuid];
+
+					if (!fetchsession) {
+						// FIX v0.30.10: since version 0.30.10 does not pass web3providerurl to lower levels functions
+						// and relies on session.ethereum_node_access_instance in getEthereumNodeAccessInstance(session)
+						fetchsession = await this._createDummyCardSession(cardsession);
+						fetchsession.DUMMY_SESSION_CURRENCY = currency;
+						fetchsession.DUMMY_SESSION_CARD = card;
+						currencysessionmap[currency.uuid] = fetchsession;
+
+						let ethnodeserver = await this.getCurrencyEthNodeServer(session, currency);
+						await this._setMonitoredEthereumNodeAccess(fetchsession, ethnodeserver);
+					}
+				}
+				else {
+					return Promise.reject('ERR_MISSING_CREDENTIALS');
+				}
+			}
+			else {
+				return Promise.reject('ERR_MISSING_CREDENTIALS');
+			}
+		}
+		else {
+			if (card) {
+				var cardsession = card._getSession();
+				fetchsession = await this._getChildSessionOnCardCurrency(cardsession, card, currency);
+			}
+			else {
+				fetchsession = await this._getChildSessionOnCurrency(session, currency);
+			}
+		}
+
+		return fetchsession;
+	}
+
+
 
 }
 
